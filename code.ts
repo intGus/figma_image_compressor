@@ -5,24 +5,20 @@ figma.ui.resize(500, 500)
 figma.ui.onmessage = async (pluginMessage) => {
   // test
   const { selection } = figma.currentPage
-  console.log(selection[0].height)
+  console.log(selection)
   exportPostFrameAsPNG();
 
-  async function exportFrameAsPNG(frameNode) {
-    const options = {
+  async function exportFrameAsPNG(frameNode: SceneNode): Promise<Uint8Array> {
+    const options: ExportSettingsImage = {
       format: 'JPG',
       constraint: {
         type: 'SCALE',
-        value: 1 // Adjust the value as needed for the desired scale
+        value: 2 // Adjust the value as needed for the desired scale
       }
     };
-
-    const imageBytes = await frameNode.exportAsync(options);
-    //
-    // console.log(imageBytes)
-    // return
-    //
-    return imageBytes;
+  
+    const bytes = await frameNode.exportAsync(options);
+    return new Uint8Array(bytes);
   }
 
   function findPostFrame() {
@@ -45,7 +41,6 @@ figma.ui.onmessage = async (pluginMessage) => {
 
     try {
       const imageBytes = await exportFrameAsPNG(postFrame);
-      // const imageURL = figma.createImage(imageBytes).hash;
       figma.ui.postMessage({ type: 'pngData', imageBytes })
     } catch (error) {
       console.error('Error exporting frame as PNG:', error);

@@ -15,16 +15,22 @@
 
 <h1>Slice & Export</h1>
 
-<div>
-  <span></span>
+<div style="display:flex; flex-direction: row; justify-content: center; align-items: center">
+  <label for="username">Size of file</label>
+  <input class="input__field" type="text" placeholder="Bytes" id="bytes">
+
+  <!-- <label for="name">Name</label>
+  <input class="input__field" type="text" placeholder="Display Name" id="name"> -->
 </div>
 
 <div style="text-align: center;">
-  <button class="button button--primary" id="submit-post" style="display: inline-block; margin-right: 80px;">Create</button>
+
+  <button class="button button--primary" id="submit-post" style="display: inline-block; margin-right: 80px;">Calc</button>
 </div>
 
 <script>
-  document.getElementById('submit-post').onclick = () => {
+
+document.getElementById('submit-post').onclick = () => {
     const message = {}
     parent.postMessage({pluginMessage: message}, '*')
   }
@@ -34,23 +40,71 @@
 
     if (type === 'pngData' && imageBytes) {
       const cleanBytes = typedArrayToBuffer(imageBytes)
-      const blob = new Blob([ cleanBytes ], { type: 'image/png' });
-      console.log(imageBytes)
-      const link = document.createElement('a');
-      link.href = URL.createObjectURL(blob);
-      link.innerText = 'Download PDF';
-      link.download = 'document.PNG'; // Specify the desired filename for the downloaded PDF
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
+      const blob = new Blob([ cleanBytes ], { type: 'image/jpeg' });
+      console.log(blob.size)
+      document.getElementById('bytes').value = imageBytes
+      updateComponent(imageBytes)
+
+      // comment for debug
+
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext("2d");
+
+      const img = new Image();
+      img.onload = () => {
+
+        canvas.width = img.width;
+        canvas.height = img.height;
+
+        ctx.drawImage(img, 0, 0);
+        canvas.toBlob((compressedBlob) => {
+          handleBlob(compressedBlob)
+        }, mimeType, quality)
+      };
+      img.src = URL.createObjectURL(blob);
+
+      const mimeType = blob.type;
+      const quality = 0.50;
+
+      // end of debug
+
+      // const link = document.createElement('a');
+      // link.href = URL.createObjectURL(blob);
+      // console.log(img)
+      // link.innerText = 'Download PDF';
+      // link.download = 'document.PNG'; // Specify the desired filename for the downloaded PDF
+      // document.body.appendChild(link);
+      // link.click();
+      // document.body.removeChild(link);
 
       // Clean up the object URL
-      URL.revokeObjectURL(link.href);
+      // URL.revokeObjectURL(link.href);
     }
   };
 
   function typedArrayToBuffer(array) {
    return array.buffer.slice(array.byteOffset, array.byteLength + array.byteOffset)
+  }
+
+  async function updateComponent(data) {
+    console.log(data.length)
+    const bytesText = document.getElementById('bytes');
+    bytesText.value = data.length;
+  }
+
+  function handleBlob(inputBlob) {
+    console.log(inputBlob.size)
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(inputBlob);
+    link.innerText = 'Download IMG';
+    link.download = 'document.JPG'; // Specify the desired filename for the downloaded PDF
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+
+    //  Clean up the object URL
+    
+    URL.revokeObjectURL(link.href);
   }
 
 </script>
