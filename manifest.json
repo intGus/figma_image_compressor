@@ -1,0 +1,12 @@
+{
+  "name": "slice_export",
+  "id": "1247697024251755358",
+  "api": "1.0.0",
+  "main": "code.js",
+  "capabilities": [],
+  "enableProposedApi": false,
+  "editorType": [
+    "figma"
+  ],
+  "ui": "ui.html"
+}

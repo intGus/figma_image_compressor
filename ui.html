@@ -1,0 +1,56 @@
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/thomas-lowry/figma-plugin-ds/dist/figma-plugin-ds.css">
+
+<style>
+
+  body {
+    padding: 2em;
+  }
+  div {
+    margin: 1em;
+  }
+  input {
+    display: block;
+  }
+</style>
+
+<h1>Slice & Export</h1>
+
+<div>
+  <span></span>
+</div>
+
+<div style="text-align: center;">
+  <button class="button button--primary" id="submit-post" style="display: inline-block; margin-right: 80px;">Create</button>
+</div>
+
+<script>
+  document.getElementById('submit-post').onclick = () => {
+    const message = {}
+    parent.postMessage({pluginMessage: message}, '*')
+  }
+
+  window.onmessage = async (event) => {
+  const { type, imageBytes } = event.data.pluginMessage;
+
+    if (type === 'pngData' && imageBytes) {
+      const cleanBytes = typedArrayToBuffer(imageBytes)
+      const blob = new Blob([ cleanBytes ], { type: 'image/png' });
+      console.log(imageBytes)
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.innerText = 'Download PDF';
+      link.download = 'document.PNG'; // Specify the desired filename for the downloaded PDF
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+
+      // Clean up the object URL
+      URL.revokeObjectURL(link.href);
+    }
+  };
+
+  function typedArrayToBuffer(array) {
+   return array.buffer.slice(array.byteOffset, array.byteLength + array.byteOffset)
+  }
+
+</script>
