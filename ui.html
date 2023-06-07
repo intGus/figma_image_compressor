@@ -48,15 +48,19 @@
 
     // handleBlobs(arrayBlob)
 
-    compressBlob(arrayBlob[0][1])
-    .then((compressedBlob) => {
-      // Use the compressed blob here
-      handleBlobs([[arrayBlob[0][0], compressedBlob]]);
-    })
-    .catch((error) => {
-      // Handle any errors that occur during the compression process
-      console.error('Error compressing blob:', error);
-    });
+    const compressionPromises = arrayBlob.map(([name, blob]) =>
+      compressBlob(blob).then((compressedBlob) => [name, compressedBlob])
+    );
+
+    Promise.all(compressionPromises)
+      .then((compressedBlobs) => {
+        // Use the compressed blobs here
+        handleBlobs(compressedBlobs);
+      })
+      .catch((error) => {
+        // Handle any errors that occur during the compression process
+        console.error('Error compressing blobs:', error);
+      });
 
   }
 
