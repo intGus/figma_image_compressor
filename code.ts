@@ -2,12 +2,14 @@ figma.showUI(__html__)
 
 figma.ui.resize(500, 500)
 
-figma.ui.onmessage = async (pluginMessage) => {
+main()
+
+async function main() {
   const blobs = [];
   const { selection } = figma.currentPage;
 
   for (let node of selection) {
-    const blobPromise = exportPostFrameAsPNG(node);
+    const blobPromise = exportPostNodeAsJPG(node);
     blobs.push([node.name, blobPromise]);
     // blobs.push(blobPromise)
     console.log(node.name, blobPromise);
@@ -32,20 +34,7 @@ figma.ui.onmessage = async (pluginMessage) => {
     return new Uint8Array(bytes);
   }
 
-  function findPostFrame() {
-    const postFrame = figma.currentPage.findOne(
-      (node) => node.name === 'Post' && node.type === 'FRAME'
-    );
-
-    if (!postFrame) {
-      console.error('Post frame not found');
-      return null;
-    }
-
-    return postFrame;
-  }
-
-  async function exportPostFrameAsPNG(node) {
+  async function exportPostNodeAsJPG(node) {
     const postFrame = node;
 
     if (!postFrame) {
