@@ -49,6 +49,8 @@
 </style>
 
 <h1>Slice & Export</h1>
+<label for="quality">Compression:</label>
+<input type="number" id="quality" name="quality" min="1" max="100" value="100" style="display: inline-block">
 
 <div id="table-container"></div>
 
@@ -62,7 +64,9 @@
   
   window.onmessage = async (event) => {
     const arrayData = event.data.pluginMessage;
-    arrayBlob = []
+    const arrayBlob = []
+    let compressedArray
+    
     if (arrayData.length) {
       for (data of arrayData) {
           arrayBlob.push([data[0], createBlob(data[1])])
@@ -72,15 +76,23 @@
     updateTable(arrayBlob)
 
     document.getElementById('export').onclick = () => {
-      handleBlobs(arrayBlob)
+      if (compressedArray) {
+        handleBlobs(compressedArray)
+      } else {
+        handleBlobs(arrayBlob)
+      }
     }
 
     document.getElementById('calculate').onclick = () => {
-      compressData(arrayBlob)
+      quality = document.getElementById('quality').value
+      quality = (parseFloat(quality)) / 100
+      // if quality === 100
+        // do nothing
+      //else
+      compressData(quality, arrayBlob)
         .then((newBlobs) => {
           updateTable(newBlobs)
-          arrayBlob = newBlobs
-          // Use the newBlobs here
+          compressedArray = newBlobs
         })
         .catch((error) => {
           console.error('Error compressing blobs:', error);
@@ -88,9 +100,9 @@
     };
 
     // function to compress
-    function compressData(arrayBlob) {
+    function compressData(quality, arrayBlob) {
       const compressionPromises = arrayBlob.map(([name, blob]) =>
-        compressBlob(blob).then((compressedBlob) => [name, compressedBlob])
+        compressBlob(quality, blob).then((compressedBlob) => [name, compressedBlob])
       );
       return Promise.all(compressionPromises);
     }
@@ -132,7 +144,7 @@
     container.appendChild(table);
   }
 
-  function compressBlob(blob) {
+  function compressBlob(quality, blob) {
     return new Promise((resolve, reject) => {
       const canvas = document.createElement('canvas');
       const ctx = canvas.getContext("2d");
@@ -147,7 +159,7 @@
           // Clean up the object URL after the blob is created
           URL.revokeObjectURL(img.src);
           resolve(compressedBlob);
-        }, blob.type, 0.50);
+        }, blob.type, quality);
       };
       img.onerror = (error) => {
         // Clean up the object URL in case of an error
