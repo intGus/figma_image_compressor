@@ -6,7 +6,7 @@
     padding: 2em;
   }
   div {
-    margin: 1em;
+    margin: 0em;
   }
   input {
     display: block;
@@ -14,7 +14,8 @@
 
   /* Optional styling for the container element */
   #table-container {
-    margin: 20px;
+    max-height: 350px;
+    overflow-y: auto;
   }
 
   /* Styling for the table */
@@ -29,12 +30,14 @@
     font-weight: bold;
     padding: 8px;
     text-align: left;
+    font-size: 11px;
   }
 
   /* Styling for table data cells */
   td {
     border: 1px solid #ddd;
     padding: 8px;
+    font-size: 11px;
   }
 
   /* Alternating row background color */
@@ -49,14 +52,16 @@
 </style>
 
 <h1>Slice & Export</h1>
-<label for="quality">Compression:</label>
+<label for="quality" class="type--small">Compression:</label>
 <input type="number" id="quality" name="quality" min="1" max="100" value="100" style="display: inline-block">
+<input type="range" min="1" max="100" value="50" class="slider" id="myRange" style="accent-color: rgb(0, 85, 35);">
 
-<div id="table-container"></div>
+<div id="table-container" ></div>
+<div id="total-container"></div>
 
 <div style="text-align: center;">
   <button class="button button--primary" id="calculate" style="display: inline-block; margin-right: 80px;">Calculate</button>
-  <button class="button button--primary" id="export" style="display: inline-block; margin-right: 80px;">Export</button>
+  <button class="button button--primary" id="export" style="display: inline-block;">Export</button>
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.6.0/jszip.min.js"></script>
@@ -87,7 +92,7 @@
       quality = document.getElementById('quality').value
       quality = (parseFloat(quality)) / 100
       // if quality === 100
-        // do nothing
+        // do nothing and export arrayBlob
       //else
       compressData(quality, arrayBlob)
         .then((newBlobs) => {
@@ -98,19 +103,25 @@
           console.error('Error compressing blobs:', error);
         });
     };
+  }
 
-    // function to compress
-    function compressData(quality, arrayBlob) {
-      const compressionPromises = arrayBlob.map(([name, blob]) =>
-        compressBlob(quality, blob).then((compressedBlob) => [name, compressedBlob])
-      );
-      return Promise.all(compressionPromises);
-    }
-
+  // function to compress
+  function compressData(quality, arrayBlob) {
+    const compressionPromises = arrayBlob.map(([name, blob]) =>
+      compressBlob(quality, blob).then((compressedBlob) => [name, compressedBlob])
+    );
+    return Promise.all(compressionPromises);
   }
 
   // function to update the UI with data from array
   function updateTable(blobsArray) {
+    blobsArray.sort((a, b) => {
+      const layerA = a[0];
+      const layerB = b[0];
+
+      return naturalSort(layerA, layerB);
+  });
+
     const container = document.getElementById("table-container");
     const table = document.createElement("table");
     const headerRow = document.createElement("tr");
@@ -123,6 +134,8 @@
     headerCell2.textContent = "Array Size";
     headerRow.appendChild(headerCell2);
     table.appendChild(headerRow);
+
+    let totalSelectionSize = 0;
 
     blobsArray.forEach((blob) => {
       const layer = blob[0];
@@ -139,7 +152,21 @@
       row.appendChild(arraySizeCell);
 
       table.appendChild(row);
+
+      totalSelectionSize += arraySize;
     });
+
+    const totalRow = document.createElement("tr");
+
+    const totalCell = document.createElement("td");
+    totalCell.textContent = "Total";
+    totalRow.appendChild(totalCell);
+
+    const totalSelectionSizeCell = document.createElement("td");
+    totalSelectionSizeCell.textContent = totalSelectionSize;
+    totalRow.appendChild(totalSelectionSizeCell);
+
+    table.appendChild(totalRow);
 
     container.appendChild(table);
   }
@@ -174,6 +201,7 @@
    return array.buffer.slice(array.byteOffset, array.byteLength + array.byteOffset)
   }
 
+  // function to create a blob from the Uint8Array
   function createBlob(data) {
     const cleanBytes = typedArrayToBuffer(data)
     const blob = new Blob([ cleanBytes ], { type: 'image/jpeg' });
@@ -181,6 +209,7 @@
     return blob
   }
 
+  // function to create, zip and download files
   function handleBlobs(inputBlobs) {
     console.log(inputBlobs)
     let zip = new JSZip();
@@ -202,5 +231,11 @@
         URL.revokeObjectURL(link.href);
       });
   }
+
+  // function to sort the array in a natural way
+  function naturalSort(a, b) {
+  const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
+  return collator.compare(a, b);
+}
 
 </script>

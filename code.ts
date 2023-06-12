@@ -1,6 +1,6 @@
 figma.showUI(__html__)
 
-figma.ui.resize(500, 500)
+figma.ui.resize(500, 600)
 
 main()
 
@@ -11,17 +11,14 @@ async function main() {
   for (let node of selection) {
     const blobPromise = exportPostNodeAsJPG(node);
     blobs.push([node.name, blobPromise]);
-    // blobs.push(blobPromise)
-    console.log(node.name, blobPromise);
   }
 
   const resolvedBlobs = await Promise.all(
     blobs.map(async ([nodeName, blobPromise]) => [nodeName, await blobPromise])
   );
-  console.log(resolvedBlobs);
   figma.ui.postMessage(resolvedBlobs);
 
-  async function exportFrameAsPNG(frameNode) {
+  async function exportFrameAsJPG(frameNode) {
     const options = {
       format: 'JPG',
       constraint: {
@@ -42,7 +39,7 @@ async function main() {
     }
 
     try {
-      const imageBytes = await exportFrameAsPNG(postFrame);
+      const imageBytes = await exportFrameAsJPG(postFrame);
       return imageBytes;
     } catch (error) {
       console.error('Error exporting frame as PNG:', error);
