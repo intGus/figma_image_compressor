@@ -9,21 +9,22 @@ async function main() {
   const { selection } = figma.currentPage;
 
   for (let node of selection) {
-    const blobPromise = exportPostNodeAsJPG(node);
-    blobs.push([node.name, blobPromise]);
+    const scale = node.exportSettings[0].constraint.value || 1;
+    const blobPromise = exportPostNodeAsJPG(node, scale);
+    blobs.push([node.name, scale, blobPromise]);
   }
 
   const resolvedBlobs = await Promise.all(
-    blobs.map(async ([nodeName, blobPromise]) => [nodeName, await blobPromise])
+    blobs.map(async ([nodeName, scale, blobPromise]) => [nodeName, scale, await blobPromise])
   );
   figma.ui.postMessage(resolvedBlobs);
 
-  async function exportFrameAsJPG(frameNode) {
+  async function exportFrameAsJPG(frameNode, scale) {
     const options = {
       format: 'JPG',
       constraint: {
         type: 'SCALE',
-        value: 2 // Adjust the value as needed for the desired scale
+        value: scale // Adjust the value as needed for the desired scale
       }
     };
 
@@ -31,7 +32,7 @@ async function main() {
     return new Uint8Array(bytes);
   }
 
-  async function exportPostNodeAsJPG(node) {
+  async function exportPostNodeAsJPG(node, scale) {
     const postFrame = node;
 
     if (!postFrame) {
@@ -39,10 +40,10 @@ async function main() {
     }
 
     try {
-      const imageBytes = await exportFrameAsJPG(postFrame);
+      const imageBytes = await exportFrameAsJPG(postFrame, scale);
       return imageBytes;
     } catch (error) {
-      console.error('Error exporting frame as PNG:', error);
+      console.error('Error exporting frame as JPG:', error);
       throw error; // Rethrow the error to propagate it
     }
   }
