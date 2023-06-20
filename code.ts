@@ -24,7 +24,7 @@ async function main() {
       format: 'JPG',
       constraint: {
         type: 'SCALE',
-        value: scale // Adjust the value as needed for the desired scale
+        value: scale // Get the value from Figma's export setting
       }
     };
 

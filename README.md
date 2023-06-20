@@ -1,40 +1,33 @@
-Below are the steps to get your plugin running. You can also find instructions at:
+# Free Image Compressor for Figma
 
-  https://www.figma.com/plugin-docs/plugin-quickstart/
+Effortlessly compress and export your JPEG images in Figma
 
-This plugin template uses Typescript and NPM, two standard tools in creating JavaScript applications.
+## Usage
 
-First, download Node.js which comes with NPM. This will allow you to install TypeScript and other
-libraries. You can find the download link here:
+[Get the plugin on Figma](https://www.figma.com/community/plugin/1247697024251755358/Free-Image-Compressor) then select the elements you want to compress and export, select the desired scale in Figma's export settings, run the plugin, choose the compression level, press calculate for accurate file size and then export and save.
 
-  https://nodejs.org/en/download/
+## Installing and Contributing
 
-Next, install TypeScript using the command:
+Below are the steps to get your plugin running. You can also find detailed instructions at: https://www.figma.com/plugin-docs/plugin-quickstart-guide/
 
-  npm install -g typescript
-
-Finally, in the directory of your plugin, get the latest type definitions for the plugin API by running:
-
-  npm install --save-dev @figma/plugin-typings
-
-If you are familiar with JavaScript, TypeScript will look very familiar. In fact, valid JavaScript code
-is already valid Typescript code.
-
-TypeScript adds type annotations to variables. This allows code editors such as Visual Studio Code
-to provide information about the Figma API while you are writing code, as well as help catch bugs
-you previously didn't notice.
-
-For more information, visit https://www.typescriptlang.org/
-
-Using TypeScript requires a compiler to convert TypeScript (code.ts) into JavaScript (code.js)
-for the browser to run.
-
-We recommend writing TypeScript code using Visual Studio code:
-
-1. Download Visual Studio Code if you haven't already: https://code.visualstudio.com/.
-2. Open this directory in Visual Studio Code.
-3. Compile TypeScript to JavaScript: Run the "Terminal > Run Build Task..." menu item,
+* Create a directory and clone this repository https://github.com/intGus/figma_image_compressor.git
+* Open the directory and run `npm install`
+* Open this directory in Visual Studio Code.
+* Compile TypeScript to JavaScript: Run the "Terminal > Run Build Task..." menu item,
     then select "npm: watch". You will have to do this again every time
     you reopen Visual Studio Code.
+* Open the Figma App (Plugin development can be done only on the app)
+* Click the Figma Menu and select Plugins > Development > Import plugin from manifest
+* Find the directory where the repository was cloned and select the manifest.json file
 
-That's it! Visual Studio Code will regenerate the JavaScript file every time you save.
+Now you can run the plugin in your local environment. 
+
+## License
+
+This project is licensed under Figma's [Community Free Resource License](https://www.figma.com/community-free-resource-license/?fuid=1193733706561111205)
+
+## Acknowledgments
+
+* [JSZip v3.6.0](http://stuartk.com/jszip) - A JavaScript class for generating and reading zip files 
+* [Export Zip](https://github.com/brianlovin/figma-export-zip) - An easy-to-understand Zip & Export plugin:
+  This code was a great resource to understand how the Figma Plugin works and how to quickly Zip files for download.
