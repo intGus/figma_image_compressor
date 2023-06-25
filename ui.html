@@ -79,7 +79,7 @@
     rangeInput.value = qualityInput.value;
   });
   
-  window.onmessage = async (event) => {
+  window.onmessage = (event) => {
     const arrayData = event.data.pluginMessage;
     const arrayBlob = []
     let compressedArray
