@@ -2,14 +2,15 @@ figma.showUI(__html__)
 
 figma.ui.resize(500, 600)
 
-main().then(res => figma.closePlugin(res))
+// main().then(res => figma.closePlugin(res))
+
+main()
 
 async function main() {
   const blobs = [];
   const { selection } = figma.currentPage;
 
   for (let node of selection) {
-    console.log(node)
     const scale = node.exportSettings[0] ? node.exportSettings[0].constraint.value : 1; // Check export settings or default to 1
     const blobPromise = exportPostNodeAsJPG(node, scale);
     blobs.push([node.name, scale, blobPromise]);
@@ -20,9 +21,9 @@ async function main() {
   );
   figma.ui.postMessage(resolvedBlobs);
   
-  return new Promise(res => {
-    figma.ui.onmessage = () => res()
-  })
+  // return new Promise(res => {
+  //   figma.ui.onmessage = () => res()
+  // })
 }
 
 async function exportFrameAsJPG(frameNode, scale) {
@@ -49,4 +50,8 @@ async function exportPostNodeAsJPG(node, scale) {
     console.error('Error exporting frame as JPG:', error);
     throw error; // Rethrow the error to propagate it
   }
+}
+
+figma.ui.onmessage = async() => {
+  main()  
 }

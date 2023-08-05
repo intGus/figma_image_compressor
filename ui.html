@@ -59,15 +59,21 @@
 <div id="table-container" ></div>
 <div id="total-container"></div>
 
-<div style="text-align: center;">
-  <button class="button button--primary" id="calculate" style="display: inline-block; margin-right: 80px;">Calculate</button>
+<div style="text-align: center; margin-top: 10px;">
+  <button class="button button--primary" id="reload" style="display: inline-block;">Reload</button>
+  <button class="button button--primary" id="calculate" style="display: inline-block">Calculate</button>
   <button class="button button--primary" id="export" style="display: inline-block;">Export</button>
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.6.0/jszip.min.js"></script>
 <script>
+
   const qualityInput = document.getElementById('quality');
   const rangeInput = document.getElementById('myRange');
+
+  document.getElementById('reload').onclick = () => {
+    parent.postMessage({pluginMessage: ''}, '*')
+  }
 
   // Update the input number when the range input changes
   rangeInput.addEventListener('input', () => {
@@ -172,7 +178,7 @@
       row.appendChild(scaleCell);
 
       const arraySizeCell = document.createElement("td");
-      arraySizeCell.textContent = arraySize;
+      arraySizeCell.textContent = formatBytes(arraySize);
       row.appendChild(arraySizeCell);
 
       table.appendChild(row);
@@ -190,7 +196,7 @@
     totalRow.appendChild(emptyCell);
 
     const totalSelectionSizeCell = document.createElement("td");
-    totalSelectionSizeCell.textContent = totalSelectionSize;
+    totalSelectionSizeCell.textContent = formatBytes(totalSelectionSize);
     totalRow.appendChild(totalSelectionSizeCell);
 
     table.appendChild(totalRow);
@@ -278,5 +284,15 @@
 
     return `${firstChars}${ellipsis}${lastChars}`; // Combine the shortened string with the ellipsis
   }
+
+  function formatBytes(bytes) {
+    if (bytes < 1024) {
+        return bytes + ' B';
+    } else if (bytes < 1024 * 1024) {
+        return (bytes / 1024).toFixed(1) + ' KB';
+    } else {
+        return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+    }
+}
 
 </script>
