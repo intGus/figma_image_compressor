@@ -1,30 +1,13 @@
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/thomas-lowry/figma-plugin-ds/dist/figma-plugin-ds.css">
 
 <style>
+  body { padding: 2em; }
+  div { margin: 0em; }
+  input { display: block; }
 
-  body {
-    padding: 2em;
-  }
-  div {
-    margin: 0em;
-  }
-  input {
-    display: block;
-  }
+  #table-container { max-height: 350px; overflow-y: auto; }
+  table { border-collapse: collapse; width: 100%; }
 
-  /* Optional styling for the container element */
-  #table-container {
-    max-height: 350px;
-    overflow-y: auto;
-  }
-
-  /* Styling for the table */
-  table {
-    border-collapse: collapse;
-    width: 100%;
-  }
-
-  /* Styling for table header cells */
   th, tr:nth-last-child(1) {
     background-color: #f2f2f2;
     font-weight: bold;
@@ -33,266 +16,359 @@
     font-size: 11px;
   }
 
-  /* Styling for table data cells */
   td {
     border: 1px solid #ddd;
     padding: 8px;
     font-size: 11px;
   }
 
-  /* Alternating row background color */
-  tr:nth-child(even) {
-    background-color: #f9f9f9;
-  }
+  tr:nth-child(even) { background-color: #f9f9f9; }
+  tr:hover { background-color: #f5f5f5; }
 
-  /* Hover effect on rows */
-  tr:hover {
-    background-color: #f5f5f5;
+  .row { display: flex; gap: 12px; align-items: center; margin-top: 8px; }
+  .row label { font-size: 11px; white-space: nowrap; }
+  .row select, .row input[type="number"], .row input[type="text"] {
+    display: inline-block; min-width: 120px;
   }
+  .row input[type="checkbox"] { transform: scale(1.1); margin-top: 2px; }
+
+  /* Visual disabled state for controls + labels */
+  .disabled-ctrl { opacity: .5; pointer-events: none; }
 </style>
 
 <h1>Compress & Export</h1>
-<label for="quality" class="type--small">Compression:</label>
-<input type="number" id="quality" name="quality" min="1" max="100" step="0.5" value="100" style="display: inline-block">
-<input type="range" min="1" max="100" value="100" class="slider" step="0.5" id="myRange" value="100" style="accent-color: rgb(0, 85, 35);">
 
-<div id="table-container" ></div>
-<div id="total-container"></div>
+<!-- FORMAT + OPTIONS -->
+<div class="row">
+  <label for="format" class="type--small">Format:</label>
+  <select id="format">
+    <option value="JPEG">JPEG (MozJPEG)</option>
+    <option value="WEBP">WebP (lossy / lossless)</option>
+    <option value="PNG">PNG (lossless / quantized)</option>
+    <option value="PNG-lossless-oxipng">PNG (lossless optimize only)</option>
+  </select>
 
-<div style="text-align: center; margin-top: 10px;">
-  <button class="button button--primary" id="reload" style="display: inline-block;">Reload</button>
-  <button class="button button--primary" id="calculate" style="display: inline-block">Calculate</button>
-  <button class="button button--primary" id="export" style="display: inline-block;">Export</button>
+  <label for="lossless" class="type--small">Lossless:</label>
+  <input type="checkbox" id="lossless" />
+
+  <label for="chroma" class="type--small">JPEG Chroma:</label>
+  <select id="chroma">
+    <option value="420" selected>4:2:0</option>
+    <option value="444">4:4:4</option>
+  </select>
+
+  <label for="quantColors" class="type--small">PNG Quant Colors:</label>
+  <input type="number" id="quantColors" min="0" max="256" step="1" value="0" style="width:80px" />
+
+  <label for="oxipng" class="type--small">Oxipng:</label>
+  <input type="checkbox" id="oxipng" checked />
 </div>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.6.0/jszip.min.js"></script>
-<script>
+<!-- QUALITY -->
+<label for="quality" class="type--small" style="margin-top:8px">Compression (Quality 1–100):</label>
+<input type="number" id="quality" min="1" max="100" step="0.5" value="100" style="display:inline-block">
+<input type="range" min="1" max="100" class="slider" step="0.5" id="myRange" value="100" style="accent-color: rgb(0, 85, 35);">
 
-  const qualityInput = document.getElementById('quality');
-  const rangeInput = document.getElementById('myRange');
+<div id="table-container"></div>
+<div id="total-container"></div>
 
-  document.getElementById('reload').onclick = () => {
-    parent.postMessage({pluginMessage: ''}, '*')
+<div style="text-align:center; margin-top:10px;">
+  <button class="button button--primary" id="reload">Reload</button>
+  <button class="button button--primary" id="calculate">Calculate</button>
+  <button class="button button--primary" id="export">Export</button>
+</div>
+
+<div class="row" style="margin-top:10px">
+  <label for="zipName" class="type--small">ZIP name:</label>
+  <input type="text" id="zipName" value="images.zip" style="width:200px" />
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+
+<script type="module">
+  import { decode as decodeJpeg, encode as encodeJpeg } from "https://unpkg.com/@jsquash/jpeg@1?module";
+  import { decode as decodePng,  encode as encodePng  } from "https://unpkg.com/@jsquash/png@3?module";
+  import { encode as encodeWebp }                      from "https://unpkg.com/@jsquash/webp@1?module";
+  import { optimise as oxipng }                        from "https://unpkg.com/@jsquash/oxipng@2?module";
+  import * as IQ                                       from "https://cdn.jsdelivr.net/npm/image-q@4/+esm";
+
+  const qInput = document.getElementById('quality');
+  const rInput = document.getElementById('myRange');
+  const fmtEl = document.getElementById('format');
+  const losslessEl = document.getElementById('lossless');
+  const chromaEl = document.getElementById('chroma');
+  const quantColorsEl = document.getElementById('quantColors');
+  const oxipngEl = document.getElementById('oxipng');
+
+  document.getElementById('reload').onclick = () => parent.postMessage({ pluginMessage: '' }, '*');
+  rInput.oninput = () => (qInput.value = rInput.value);
+  qInput.oninput = () => (rInput.value = qInput.value);
+
+  let originalArray = [];
+  let compressedArray = null;
+
+  // ---------- Byte helpers (robust to ArrayBuffer/TypedArray) ----------
+  function toArrayBuffer(input) {
+    if (input instanceof ArrayBuffer) return input;
+    if (ArrayBuffer.isView(input))
+      return input.buffer.slice(input.byteOffset, input.byteOffset + input.byteLength);
+    throw new TypeError('Expected ArrayBuffer or TypedArray');
+  }
+  function toUint8(input) {
+    if (input instanceof Uint8Array) return input;
+    if (input instanceof ArrayBuffer) return new Uint8Array(input);
+    if (ArrayBuffer.isView(input)) return new Uint8Array(input.buffer, input.byteOffset, input.byteLength);
+    throw new TypeError('Expected ArrayBuffer or TypedArray');
   }
 
-  // Update the input number when the range input changes
-  rangeInput.addEventListener('input', () => {
-    qualityInput.value = rangeInput.value;
-  });
+  function sniffFormat(u8) {
+    if (u8.length >= 8 && u8[0] === 0x89 && u8[1] === 0x50) return 'PNG';
+    if (u8.length >= 2 && u8[0] === 0xFF && u8[1] === 0xD8) return 'JPG';
+    if (u8.length >= 12 && u8[0] === 0x52 && u8[1] === 0x49 && u8[8] === 0x57 && u8[9] === 0x45) return 'WEBP';
+    return 'JPG';
+  }
 
-  // Update the range input when the input number changes
-  qualityInput.addEventListener('input', () => {
-    rangeInput.value = qualityInput.value;
-  });
-  
-  window.onmessage = (event) => {
-    const arrayData = event.data.pluginMessage;
-    const arrayBlob = []
-    let compressedArray
-    
-    if (arrayData.length) {
-      for (data of arrayData) {
-          arrayBlob.push([data[0], data[1], createBlob(data[2])])
-      }
-    }
+  function bytesToBlob(anyBytes) {
+    const u8 = toUint8(anyBytes);
+    const fmt = sniffFormat(u8);
+    const mime = fmt === 'PNG' ? 'image/png' : fmt === 'WEBP' ? 'image/webp' : 'image/jpeg';
+    return new Blob([toArrayBuffer(u8)], { type: mime });
+  }
 
-    updateTable(arrayBlob)
+  async function bytesToImageData(anyBytes, mime = 'image/png') {
+    const blob = new Blob([toArrayBuffer(anyBytes)], { type: mime });
+    const bmp = await createImageBitmap(blob);
+    const oc = new OffscreenCanvas(bmp.width, bmp.height);
+    const ctx = oc.getContext('2d');
+    ctx.drawImage(bmp, 0, 0);
+    return ctx.getImageData(0, 0, bmp.width, bmp.height);
+  }
 
-    document.getElementById('export').onclick = () => {
-      if (compressedArray) {
-        handleBlobs(compressedArray)
+  async function ensureImageDataFromBytes(anyBytes) {
+    const u8 = toUint8(anyBytes);
+    const fmt = sniffFormat(u8);
+    try {
+      if (fmt === 'PNG') {
+        const imgd = await decodePng(toArrayBuffer(u8));
+        if (imgd && imgd.data) return imgd;
       } else {
-        handleBlobs(arrayBlob)
+        const imgd = await decodeJpeg(toArrayBuffer(u8));
+        if (imgd && imgd.data) return imgd;
       }
-    }
+    } catch (_) {}
+    const mime = fmt === 'PNG' ? 'image/png' : 'image/jpeg';
+    return bytesToImageData(u8, mime);
+  }
 
-    document.getElementById('calculate').onclick = () => {
-      quality = document.getElementById('quality').value
-      quality = (parseFloat(quality)) / 100
-      // if quality === 100
-        // do nothing and export arrayBlob
-      //else
-      compressData(quality, arrayBlob)
-        .then((newBlobs) => {
-          updateTable(newBlobs)
-          compressedArray = newBlobs
-        })
-        .catch((error) => {
-          console.error('Error compressing blobs:', error);
-        });
+  async function quantizeImageData(imgData, colors = 128) {
+    const { width, height, data } = imgData;
+    const pc = IQ.utils.PointContainer.fromUint8Array(data, width, height);
+    const palette = await IQ.buildPalette([pc], { colors: Math.max(2, Math.min(256, colors)) });
+    const out = await IQ.applyPalette(pc, palette, { imageQuantization: "floyd-steinberg" });
+    const outData = out.toUint8Array();
+    return new ImageData(new Uint8ClampedArray(outData), width, height);
+  }
+
+  function currentSettings() {
+    return {
+      targetFormat: fmtEl.value,
+      quality: Number(qInput.value || 82),
+      chroma: chromaEl.value,
+      lossless: losslessEl.checked,
+      lossyColors: Number(quantColorsEl.value || 0),
+      useOxipng: oxipngEl.checked,
     };
   }
 
-  // function to compress
-  function compressData(quality, arrayBlob) {
-    const compressionPromises = arrayBlob.map(([name, scale, blob]) =>
-      compressBlob(quality, blob).then((compressedBlob) => [name, scale, compressedBlob])
-    );
-    return Promise.all(compressionPromises);
+  // ---------- Control enable/disable logic ----------
+  function setCtrlEnabled(ctrl, enabled) {
+    ctrl.disabled = !enabled;
+    const label = ctrl.previousElementSibling?.tagName === 'LABEL' ? ctrl.previousElementSibling : null;
+    if (enabled) {
+      ctrl.classList.remove('disabled-ctrl');
+      label && label.classList.remove('disabled-ctrl');
+    } else {
+      ctrl.classList.add('disabled-ctrl');
+      label && label.classList.add('disabled-ctrl');
+    }
   }
 
-  // function to update the UI with data from array
-  function updateTable(blobsArray) {
-    blobsArray.sort((a, b) => {
-      const layerA = a[0];
-      const layerB = b[0];
+  function updateControlVisibility() {
+    const fmt = fmtEl.value; // 'JPEG' | 'WEBP' | 'PNG' | 'PNG-lossless-oxipng'
+    const isJPEG   = fmt === 'JPEG';
+    const isWEBP   = fmt === 'WEBP';
+    const isPNG    = fmt === 'PNG';
+    const isPNGOpt = fmt === 'PNG-lossless-oxipng';
 
-      return naturalSort(layerA, layerB);
+    const wantLossless = losslessEl.checked;                 // WEBP only
+    const qualityRelevant = (isJPEG) || (isWEBP && !wantLossless);
+
+    // Quality relevant for JPEG, and for WebP only when NOT lossless
+    setCtrlEnabled(qInput, qualityRelevant);
+    setCtrlEnabled(rInput, qualityRelevant);
+
+    // JPEG chroma only for JPEG
+    setCtrlEnabled(chromaEl, isJPEG);
+
+    // Lossless toggle: only meaningful for WebP (PNG encode is inherently lossless here)
+    setCtrlEnabled(losslessEl, isWEBP);
+
+    // PNG quantization (lossy PNG) only for PNG format
+    setCtrlEnabled(quantColorsEl, isPNG);
+
+    // Oxipng for PNG and PNG-lossless-oxipng
+    setCtrlEnabled(oxipngEl, isPNG || isPNGOpt);
+
+    // Special case: PNG-lossless-oxipng mode — disable everything else
+    if (isPNGOpt) {
+      setCtrlEnabled(qInput, false);
+      setCtrlEnabled(rInput, false);
+      setCtrlEnabled(chromaEl, false);
+      setCtrlEnabled(losslessEl, false);
+      setCtrlEnabled(quantColorsEl, false);
+      setCtrlEnabled(oxipngEl, true);
+    }
+  }
+
+  // Re-evaluate when relevant controls change
+  fmtEl.addEventListener('change', updateControlVisibility);
+  losslessEl.addEventListener('change', () => {
+    // Optional UX: when WebP becomes lossless, set quality to 100 (ignored anyway)
+    if (fmtEl.value === 'WEBP' && losslessEl.checked) {
+      qInput.value = rInput.value = '100';
+    }
+    updateControlVisibility();
   });
+  quantColorsEl.addEventListener('input', updateControlVisibility);
+  oxipngEl.addEventListener('change', updateControlVisibility);
+  chromaEl.addEventListener('change', updateControlVisibility);
+  updateControlVisibility();
 
-    const container = document.getElementById("table-container");
-    // Clear the container
-    container.innerHTML = '';
-    const table = document.createElement("table");
-    const headerRow = document.createElement("tr");
-    const headerCell1 = document.createElement("th");
-    
-    headerCell1.textContent = "Node Name";
-    headerRow.appendChild(headerCell1);
+  // ---------- Compression ----------
+  async function compressOne(anyBytes, options) {
+    const { targetFormat, quality, chroma, lossless, lossyColors, useOxipng } = options;
+    const u8src = toUint8(anyBytes);
 
-    const headerCell2 = document.createElement("th");
-    headerCell2.textContent = "Scale";
-    headerRow.appendChild(headerCell2);
+    if (targetFormat === 'PNG-lossless-oxipng') {
+      const outAny = await oxipng(u8src, { level: 3, interlace: false, strip: "all" });
+      return { blob: new Blob([toArrayBuffer(outAny)], { type: 'image/png' }), ext: 'png' };
+    }
 
-    const headerCell3 = document.createElement("th");
-    headerCell3.textContent = "File Size";
-    headerRow.appendChild(headerCell3);
+    let imgData = await ensureImageDataFromBytes(u8src);
 
-    table.appendChild(headerRow);
+    if (targetFormat === 'JPEG') {
+      const outAny = await encodeJpeg(imgData, { quality: Math.round(quality), chromaSubsampling: chroma });
+      return { blob: new Blob([toArrayBuffer(outAny)], { type: 'image/jpeg' }), ext: 'jpg' };
+    }
+    if (targetFormat === 'WEBP') {
+      const outAny = await encodeWebp(imgData, { quality: Math.round(quality), lossless: !!lossless });
+      return { blob: new Blob([toArrayBuffer(outAny)], { type: 'image/webp' }), ext: 'webp' };
+    }
+    if (targetFormat === 'PNG') {
+      if (lossyColors > 0) imgData = await quantizeImageData(imgData, lossyColors);
+      let outAny = await encodePng(imgData);
+      if (useOxipng) outAny = await oxipng(toUint8(outAny), { level: 3, interlace: false, strip: "all" });
+      return { blob: new Blob([toArrayBuffer(outAny)], { type: 'image/png' }), ext: 'png' };
+    }
+    throw new Error('Unsupported format');
+  }
 
-    let totalSelectionSize = 0;
-
-    blobsArray.forEach((blob) => {
-      const layer = shortenString(blob[0]);
-      const scale = blob[1]
-      const arraySize = blob[2].size;
-
-      const row = document.createElement("tr");
-
-      const layerCell = document.createElement("td");
-      layerCell.textContent = layer;
-      row.appendChild(layerCell);
-
-      const scaleCell = document.createElement("td");
-      scaleCell.textContent = scale;
-      row.appendChild(scaleCell);
-
-      const arraySizeCell = document.createElement("td");
-      arraySizeCell.textContent = formatBytes(arraySize);
-      row.appendChild(arraySizeCell);
-
-      table.appendChild(row);
-
-      totalSelectionSize += arraySize;
+  async function compressDataWASM(arrayBlob) {
+    const options = currentSettings();
+    const jobs = arrayBlob.map(async ([name, scale, blob]) => {
+      const bytes = new Uint8Array(await blob.arrayBuffer());
+      const { blob: outBlob, ext } = await compressOne(bytes, options);
+      return [name, scale, outBlob, ext];
     });
+    return Promise.all(jobs);
+  }
 
-    const totalRow = document.createElement("tr");
+  // ---------- Messaging / Table / ZIP ----------
+  window.onmessage = async (event) => {
+    const arrayData = event.data.pluginMessage;
+    if (!arrayData) return;
 
-    const totalCell = document.createElement("td");
-    totalCell.textContent = "Total";
-    totalRow.appendChild(totalCell);
+    const arrayBlob = [];
+    if (arrayData.length) {
+      for (const data of arrayData) arrayBlob.push([data[0], data[1], bytesToBlob(data[2])]);
+    }
+    originalArray = arrayBlob;
+    compressedArray = null;
+    updateTable(arrayBlob);
 
-    const emptyCell = document.createElement("td");
-    totalRow.appendChild(emptyCell);
+    document.getElementById('export').onclick = () => {
+      const arr = compressedArray
+        ? compressedArray
+        : originalArray.map(([n, s, b]) => [n, s, b, b.type.includes('png') ? 'png' : b.type.includes('webp') ? 'webp' : 'jpg']);
+      handleBlobs(arr);
+    };
 
-    const totalSelectionSizeCell = document.createElement("td");
-    totalSelectionSizeCell.textContent = formatBytes(totalSelectionSize);
-    totalRow.appendChild(totalSelectionSizeCell);
+    document.getElementById('calculate').onclick = () => {
+      compressDataWASM(originalArray)
+        .then((newBlobs) => {
+          updateTable(newBlobs.map(([n, s, b]) => [n, s, b]));
+          compressedArray = newBlobs;
+        })
+        .catch((err) => console.error('Error compressing blobs:', err));
+    };
+  };
 
+  function updateTable(blobsArray) {
+    const sorted = [...blobsArray].sort((a, b) => naturalSort(a[0], b[0]));
+    const container = document.getElementById('table-container');
+    container.innerHTML = '';
+    const table = document.createElement('table');
+    const header = document.createElement('tr');
+    ['Node Name', 'Scale', 'File Size'].forEach((t) => {
+      const th = document.createElement('th');
+      th.textContent = t;
+      header.appendChild(th);
+    });
+    table.appendChild(header);
+    let total = 0;
+    for (const [name, scale, blob] of sorted) {
+      const row = document.createElement('tr');
+      row.innerHTML = `<td>${shortenString(name)}</td><td>${scale}</td><td>${formatBytes(blob.size)}</td>`;
+      table.appendChild(row);
+      total += blob.size;
+    }
+    const totalRow = document.createElement('tr');
+    totalRow.innerHTML = `<td>Total</td><td></td><td>${formatBytes(total)}</td>`;
     table.appendChild(totalRow);
-
     container.appendChild(table);
   }
 
-  function compressBlob(quality, blob) {
-    return new Promise((resolve, reject) => {
-      const canvas = document.createElement('canvas');
-      const ctx = canvas.getContext("2d");
-
-      const img = new Image();
-      img.onload = () => {
-        canvas.width = img.width;
-        canvas.height = img.height;
-
-        ctx.drawImage(img, 0, 0);
-        canvas.toBlob((compressedBlob) => {
-          // Clean up the object URL after the blob is created
-          URL.revokeObjectURL(img.src);
-          resolve(compressedBlob);
-        }, blob.type, quality);
-      };
-      img.onerror = (error) => {
-        // Clean up the object URL in case of an error
-        URL.revokeObjectURL(img.src);
-        reject(error);
-      };
-      img.src = URL.createObjectURL(blob);
+  function handleBlobs(inputBlobs) {
+    const zip = new JSZip();
+    for (const [name, , blob, ext] of inputBlobs) {
+      zip.file(`${sanitizeName(name)}.${ext}`, blob, { binary: true });
+    }
+    zip.generateAsync({ type: 'blob' }).then((content) => {
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(content);
+      link.download = sanitizeName(document.getElementById('zipName').value || 'images.zip');
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(link.href);
     });
   }
 
-  function typedArrayToBuffer(array) {
-   return array.buffer.slice(array.byteOffset, array.byteLength + array.byteOffset)
-  }
-
-  // function to create a blob from the Uint8Array
-  function createBlob(data) {
-    const cleanBytes = typedArrayToBuffer(data)
-    const blob = new Blob([ cleanBytes ], { type: 'image/jpeg' });
-    // updateComponent(cleanBytes)
-    return blob
-  }
-
-  // function to create, zip and download files
-  function handleBlobs(inputBlobs) {
-    let zip = new JSZip();
-
-    for (let blob of inputBlobs) {
-      zip.file(`${blob[0]}.jpeg`, blob[2], {base64: true})
-    }
-
-    zip.generateAsync({ type: 'blob' })
-      .then(function(content) {
-        const link = document.createElement('a');
-        link.href = URL.createObjectURL(content);
-        link.innerText = 'Download All Images';
-        link.download = 'documents.zip'; // Specify the desired filename for the zip file
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link)
-        // Clean up the object URL
-        URL.revokeObjectURL(link.href);
-      });
-  }
-
-  // function to sort the array in a natural way
   function naturalSort(a, b) {
     const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
     return collator.compare(a, b);
   }
-
   function shortenString(str) {
-    const maxLength = 50
-    if (str.length <= maxLength) {
-      return str; // Return the original string if it's already within the desired length
-    }
-
-    const ellipsis = '...'; // The ellipsis to indicate that the string has been shortened
-    const visibleChars = maxLength - ellipsis.length; // Calculate the number of visible characters
-
-    const firstChars = str.slice(0, visibleChars / 2); // Extract the first half of visible characters
-    const lastChars = str.slice(-visibleChars / 2); // Extract the last half of visible characters
-
-    return `${firstChars}${ellipsis}${lastChars}`; // Combine the shortened string with the ellipsis
+    const max = 50;
+    if (str.length <= max) return str;
+    return str.slice(0, 24) + '...' + str.slice(-23);
   }
-
   function formatBytes(bytes) {
-    if (bytes < 1024) {
-        return bytes + ' B';
-    } else if (bytes < 1024 * 1024) {
-        return (bytes / 1024).toFixed(1) + ' KB';
-    } else {
-        return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
-    }
-}
-
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+    return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+  }
+  function sanitizeName(s) {
+    return String(s).replace(/[\/\\?%*:|"<>]/g, '_');
+  }
 </script>

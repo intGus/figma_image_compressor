@@ -1,57 +1,64 @@
-figma.showUI(__html__)
+// code.ts
 
-figma.ui.resize(500, 600)
+figma.showUI(__html__);
+figma.ui.resize(500, 600);
 
-// main().then(res => figma.closePlugin(res))
+main();
 
-main()
-
+// Re-export current selection and send fresh bytes to the UI
 async function main() {
-  const blobs = [];
   const { selection } = figma.currentPage;
 
-  for (let node of selection) {
-    const scale = node.exportSettings[0] ? node.exportSettings[0].constraint.value : 1; // Check export settings or default to 1
-    const blobPromise = exportPostNodeAsJPG(node, scale);
-    blobs.push([node.name, scale, blobPromise]);
+  if (!selection || selection.length === 0) {
+    figma.notify('Select at least one exportable node.');
+    // Still send an empty array so the UI clears if needed
+    figma.ui.postMessage([]);
+    return;
   }
 
-  const resolvedBlobs = await Promise.all(
-    blobs.map(async ([nodeName, scale, blobPromise]) => [nodeName, scale, await blobPromise])
+  // Build: [name, scale, Uint8ArrayPromise]
+  const pending: Array<[string, number, Promise<Uint8Array>]> = [];
+
+  for (const node of selection) {
+    if (!('exportAsync' in node)) continue;
+
+    // If the node has an explicit export setting with a SCALE, use it; else default to 1
+    const scale =
+      (Array.isArray(node.exportSettings) &&
+        node.exportSettings[0] &&
+        // @ts-ignore – Figma types for exportSettings can vary
+        node.exportSettings[0].constraint?.type === 'SCALE' &&
+        // @ts-ignore
+        Number(node.exportSettings[0].constraint?.value)) ||
+      1;
+
+    pending.push([node.name, scale, exportNodeAsPNG(node, scale)]);
+  }
+
+  // Resolve all exports
+  const resolved = await Promise.all(
+    pending.map(async ([name, scale, bytesP]) => [name, scale, await bytesP] as [string, number, Uint8Array])
   );
-  figma.ui.postMessage(resolvedBlobs);
-  
-  // return new Promise(res => {
-  //   figma.ui.onmessage = () => res()
-  // })
+
+  // Send to UI in the exact shape your previous ui.html expects: [[name, scale, Uint8Array], ...]
+  figma.ui.postMessage(resolved);
 }
 
-async function exportFrameAsJPG(frameNode, scale) {
-  const options = {
-    format: 'JPG',
-    constraint: {
-      type: 'SCALE',
-      value: scale // Get the value from Figma's export setting
-    }
+// Export helper (PNG = lossless input for the UI’s encoders)
+async function exportNodeAsPNG(node: SceneNode, scale: number): Promise<Uint8Array> {
+  const options: ExportSettingsPNG = {
+    format: 'PNG',
+    constraint: { type: 'SCALE', value: scale },
   };
-  const bytes = await frameNode.exportAsync(options);
+  const bytes = await node.exportAsync(options);
   return new Uint8Array(bytes);
 }
 
-async function exportPostNodeAsJPG(node, scale) {
-  const postFrame = node;
-  if (!postFrame) {
-    return;
+// Handle simple "reload" ping from the UI (your previous file sent an empty pluginMessage on Reload)
+figma.ui.onmessage = async (msg: any) => {
+  // Your previous UI used: parent.postMessage({ pluginMessage: '' }, '*')
+  // Treat empty string or {type:'reload'} as a reload request
+  if (msg === '' || (msg && msg.type === 'reload')) {
+    await main();
   }
-  try {
-    const imageBytes = await exportFrameAsJPG(postFrame, scale);
-    return imageBytes;
-  } catch (error) {
-    console.error('Error exporting frame as JPG:', error);
-    throw error; // Rethrow the error to propagate it
-  }
-}
-
-figma.ui.onmessage = async() => {
-  main()  
-}
+};
