@@ -1,64 +1,83 @@
-// code.ts
-
 figma.showUI(__html__);
 figma.ui.resize(500, 600);
 
-main();
+// Debounce reloads to avoid spam when both selection & property change fire together
+let reloadTimer: number | undefined;
 
-// Re-export current selection and send fresh bytes to the UI
-async function main() {
+// Initial export
+exportSelectionAndPost();
+
+// --- Trigger reload when selection changes ---
+figma.on('selectionchange', () => scheduleReload());
+
+// --- Trigger reload when export settings changes ---
+figma.on('documentchange', (event) => {
+  for (const change of event.documentChanges) {
+    if (
+      change.type === 'PROPERTY_CHANGE' &&
+      change.origin === 'LOCAL' &&
+      change.properties.includes('exportSettings')
+    ) {
+      scheduleReload();
+      break; // no need to loop further
+    }
+  }
+});
+
+// --- Manual reload from UI still supported ---
+figma.ui.onmessage = async (msg: any) => {
+  if (msg === '' || (msg && msg.type === 'reload')) {
+    await exportSelectionAndPost();
+  }
+};
+
+// Debounced reload
+function scheduleReload() {
+  if (reloadTimer) clearTimeout(reloadTimer);
+  reloadTimer = setTimeout(() => exportSelectionAndPost(), 500) as unknown as number;
+}
+
+// --- Export logic (same as before) ---
+async function exportSelectionAndPost() {
   const { selection } = figma.currentPage;
 
   if (!selection || selection.length === 0) {
-    figma.notify('Select at least one exportable node.');
-    // Still send an empty array so the UI clears if needed
+    figma.ui.postMessage([]); // clear UI
+    return;
+  }
+
+  const items = selection.filter((n): n is SceneNode => 'exportAsync' in n);
+  if (items.length === 0) {
     figma.ui.postMessage([]);
     return;
   }
 
-  // Build: [name, scale, Uint8ArrayPromise]
   const pending: Array<[string, number, Promise<Uint8Array>]> = [];
 
-  for (const node of selection) {
-    if (!('exportAsync' in node)) continue;
-
-    // If the node has an explicit export setting with a SCALE, use it; else default to 1
+  for (const node of items) {
     const scale =
       (Array.isArray(node.exportSettings) &&
         node.exportSettings[0] &&
-        // @ts-ignore – Figma types for exportSettings can vary
+        // @ts-ignore
         node.exportSettings[0].constraint?.type === 'SCALE' &&
         // @ts-ignore
-        Number(node.exportSettings[0].constraint?.value)) ||
-      1;
+        Number(node.exportSettings[0].constraint?.value)) || 1;
 
     pending.push([node.name, scale, exportNodeAsPNG(node, scale)]);
   }
 
-  // Resolve all exports
   const resolved = await Promise.all(
     pending.map(async ([name, scale, bytesP]) => [name, scale, await bytesP] as [string, number, Uint8Array])
   );
 
-  // Send to UI in the exact shape your previous ui.html expects: [[name, scale, Uint8Array], ...]
   figma.ui.postMessage(resolved);
 }
 
-// Export helper (PNG = lossless input for the UI’s encoders)
 async function exportNodeAsPNG(node: SceneNode, scale: number): Promise<Uint8Array> {
-  const options: ExportSettingsPNG = {
+  const options: ExportSettings = {
     format: 'PNG',
     constraint: { type: 'SCALE', value: scale },
   };
   const bytes = await node.exportAsync(options);
   return new Uint8Array(bytes);
 }
-
-// Handle simple "reload" ping from the UI (your previous file sent an empty pluginMessage on Reload)
-figma.ui.onmessage = async (msg: any) => {
-  // Your previous UI used: parent.postMessage({ pluginMessage: '' }, '*')
-  // Treat empty string or {type:'reload'} as a reload request
-  if (msg === '' || (msg && msg.type === 'reload')) {
-    await main();
-  }
-};

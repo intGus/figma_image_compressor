@@ -7,33 +7,23 @@
 
   #table-container { max-height: 350px; overflow-y: auto; }
   table { border-collapse: collapse; width: 100%; }
-
-  th, tr:nth-last-child(1) {
-    background-color: #f2f2f2;
-    font-weight: bold;
-    padding: 8px;
-    text-align: left;
-    font-size: 11px;
-  }
-
-  td {
-    border: 1px solid #ddd;
-    padding: 8px;
-    font-size: 11px;
-  }
-
+  th, tr:nth-last-child(1) { background-color: #f2f2f2; font-weight: bold; padding: 8px; text-align: left; font-size: 11px; }
+  td { border: 1px solid #ddd; padding: 8px; font-size: 11px; }
   tr:nth-child(even) { background-color: #f9f9f9; }
   tr:hover { background-color: #f5f5f5; }
 
   .row { display: flex; gap: 12px; align-items: center; margin-top: 8px; }
   .row label { font-size: 11px; white-space: nowrap; }
-  .row select, .row input[type="number"], .row input[type="text"] {
-    display: inline-block; min-width: 120px;
-  }
+  .row select, .row input[type="number"], .row input[type="text"] { display: inline-block; min-width: 120px; }
   .row input[type="checkbox"] { transform: scale(1.1); margin-top: 2px; }
 
-  /* Visual disabled state for controls + labels */
   .disabled-ctrl { opacity: .5; pointer-events: none; }
+
+  #busyText { font-size: 11px; color: #666; display: none; margin: 10px 0 6px; }
+  #busyBarWrap { height: 6px; background: #eee; border-radius: 999px; overflow: hidden; display: none; }
+  #busyBar { height: 100%; width: 0%; background: #18a0fb; transition: width .2s ease; }
+
+  .btn-container { display: flex; justify-content: center; gap: 12px; margin-top: 20px; }
 </style>
 
 <h1>Compress & Export</h1>
@@ -50,15 +40,16 @@
 
   <label for="lossless" class="type--small">Lossless:</label>
   <input type="checkbox" id="lossless" />
-
+</div>
+<div class="row">
   <label for="chroma" class="type--small">JPEG Chroma:</label>
-  <select id="chroma">
+  <select id="chroma" style="min-width: 50px;">
     <option value="420" selected>4:2:0</option>
     <option value="444">4:4:4</option>
   </select>
 
   <label for="quantColors" class="type--small">PNG Quant Colors:</label>
-  <input type="number" id="quantColors" min="0" max="256" step="1" value="0" style="width:80px" />
+  <input type="number" id="quantColors" min="0" max="256" step="1" value="0" style="min-width:60px" />
 
   <label for="oxipng" class="type--small">Oxipng:</label>
   <input type="checkbox" id="oxipng" checked />
@@ -69,12 +60,16 @@
 <input type="number" id="quality" min="1" max="100" step="0.5" value="100" style="display:inline-block">
 <input type="range" min="1" max="100" class="slider" step="0.5" id="myRange" value="100" style="accent-color: rgb(0, 85, 35);">
 
+<!-- Busy / progress -->
+<div id="busyText">Compressing…</div>
+<div id="busyBarWrap"><div id="busyBar"></div></div>
+
 <div id="table-container"></div>
 <div id="total-container"></div>
 
-<div style="text-align:center; margin-top:10px;">
+<div class="btn-container">
   <button class="button button--primary" id="reload">Reload</button>
-  <button class="button button--primary" id="calculate">Calculate</button>
+  <button class="button button--primary" id="calculate" style="display: none;">Calculate</button>
   <button class="button button--primary" id="export">Export</button>
 </div>
 
@@ -92,6 +87,7 @@
   import { optimise as oxipng }                        from "https://unpkg.com/@jsquash/oxipng@2?module";
   import * as IQ                                       from "https://cdn.jsdelivr.net/npm/image-q@4/+esm";
 
+  // Elements
   const qInput = document.getElementById('quality');
   const rInput = document.getElementById('myRange');
   const fmtEl = document.getElementById('format');
@@ -100,14 +96,59 @@
   const quantColorsEl = document.getElementById('quantColors');
   const oxipngEl = document.getElementById('oxipng');
 
+  const busyText = document.getElementById('busyText');
+  const busyBarWrap = document.getElementById('busyBarWrap');
+  const busyBar = document.getElementById('busyBar');
+
+  // Defaults for a *new selection*
+  const DEFAULTS = {
+    quality: 100,
+    lossless: false,
+    chroma: '420',
+    quantColors: 0,
+    oxipng: true,
+  };
+
+  function resetControlsForNewSelection() {
+    qInput.value = String(DEFAULTS.quality);
+    rInput.value = String(DEFAULTS.quality);
+    losslessEl.checked = DEFAULTS.lossless;
+    chromaEl.value = DEFAULTS.chroma;
+    quantColorsEl.value = String(DEFAULTS.quantColors);
+    oxipngEl.checked = DEFAULTS.oxipng;
+  }
+
+  // Buttons
   document.getElementById('reload').onclick = () => parent.postMessage({ pluginMessage: '' }, '*');
-  rInput.oninput = () => (qInput.value = rInput.value);
-  qInput.oninput = () => (rInput.value = qInput.value);
+  document.getElementById('calculate').onclick = () => triggerAutoCalcNow();
+  document.getElementById('export').onclick = () => {
+    const arr = compressedArray
+      ? compressedArray
+      : originalArray.map(([n, s, b]) => [n, s, b, b.type.includes('png') ? 'png' : b.type.includes('webp') ? 'webp' : 'jpg']);
+    handleBlobs(arr);
+  };
 
-  let originalArray = [];
-  let compressedArray = null;
+  // Slider ↔ number sync (+ auto-calc debounce)
+  rInput.oninput = () => { qInput.value = rInput.value; scheduleAutoCalc(); };
+  qInput.oninput = () => { rInput.value = qInput.value; scheduleAutoCalc(); };
 
-  // ---------- Byte helpers (robust to ArrayBuffer/TypedArray) ----------
+  // Format/option listeners → auto-calc
+  fmtEl.addEventListener('change', () => { updateControlVisibility(); scheduleAutoCalc(); });
+  losslessEl.addEventListener('change', () => {
+    if (fmtEl.value === 'WEBP' && losslessEl.checked) { qInput.value = rInput.value = '100'; }
+    updateControlVisibility(); scheduleAutoCalc();
+  });
+  quantColorsEl.addEventListener('input', () => { updateControlVisibility(); scheduleAutoCalc(); });
+  oxipngEl.addEventListener('change', () => { updateControlVisibility(); scheduleAutoCalc(); });
+  chromaEl.addEventListener('change', () => { scheduleAutoCalc(); });
+
+  // State
+  let originalArray = [];      // [[name, scale, Blob], ...]
+  let compressedArray = null;  // [[name, scale, Blob, ext], ...]
+  let autoCalcTimer = null;
+  let currentRunId = 0;
+
+  // ---- Byte helpers ----
   function toArrayBuffer(input) {
     if (input instanceof ArrayBuffer) return input;
     if (ArrayBuffer.isView(input))
@@ -120,14 +161,12 @@
     if (ArrayBuffer.isView(input)) return new Uint8Array(input.buffer, input.byteOffset, input.byteLength);
     throw new TypeError('Expected ArrayBuffer or TypedArray');
   }
-
   function sniffFormat(u8) {
     if (u8.length >= 8 && u8[0] === 0x89 && u8[1] === 0x50) return 'PNG';
     if (u8.length >= 2 && u8[0] === 0xFF && u8[1] === 0xD8) return 'JPG';
     if (u8.length >= 12 && u8[0] === 0x52 && u8[1] === 0x49 && u8[8] === 0x57 && u8[9] === 0x45) return 'WEBP';
     return 'JPG';
   }
-
   function bytesToBlob(anyBytes) {
     const u8 = toUint8(anyBytes);
     const fmt = sniffFormat(u8);
@@ -143,7 +182,6 @@
     ctx.drawImage(bmp, 0, 0);
     return ctx.getImageData(0, 0, bmp.width, bmp.height);
   }
-
   async function ensureImageDataFromBytes(anyBytes) {
     const u8 = toUint8(anyBytes);
     const fmt = sniffFormat(u8);
@@ -180,46 +218,30 @@
     };
   }
 
-  // ---------- Control enable/disable logic ----------
+  // Enable/disable controls where applicable
   function setCtrlEnabled(ctrl, enabled) {
     ctrl.disabled = !enabled;
     const label = ctrl.previousElementSibling?.tagName === 'LABEL' ? ctrl.previousElementSibling : null;
-    if (enabled) {
-      ctrl.classList.remove('disabled-ctrl');
-      label && label.classList.remove('disabled-ctrl');
-    } else {
-      ctrl.classList.add('disabled-ctrl');
-      label && label.classList.add('disabled-ctrl');
-    }
+    if (enabled) { ctrl.classList.remove('disabled-ctrl'); label && label.classList.remove('disabled-ctrl'); }
+    else { ctrl.classList.add('disabled-ctrl'); label && label.classList.add('disabled-ctrl'); }
   }
-
   function updateControlVisibility() {
-    const fmt = fmtEl.value; // 'JPEG' | 'WEBP' | 'PNG' | 'PNG-lossless-oxipng'
+    const fmt = fmtEl.value;
     const isJPEG   = fmt === 'JPEG';
     const isWEBP   = fmt === 'WEBP';
     const isPNG    = fmt === 'PNG';
     const isPNGOpt = fmt === 'PNG-lossless-oxipng';
 
-    const wantLossless = losslessEl.checked;                 // WEBP only
+    const wantLossless = losslessEl.checked;
     const qualityRelevant = (isJPEG) || (isWEBP && !wantLossless);
 
-    // Quality relevant for JPEG, and for WebP only when NOT lossless
     setCtrlEnabled(qInput, qualityRelevant);
     setCtrlEnabled(rInput, qualityRelevant);
-
-    // JPEG chroma only for JPEG
     setCtrlEnabled(chromaEl, isJPEG);
-
-    // Lossless toggle: only meaningful for WebP (PNG encode is inherently lossless here)
     setCtrlEnabled(losslessEl, isWEBP);
-
-    // PNG quantization (lossy PNG) only for PNG format
     setCtrlEnabled(quantColorsEl, isPNG);
-
-    // Oxipng for PNG and PNG-lossless-oxipng
     setCtrlEnabled(oxipngEl, isPNG || isPNGOpt);
 
-    // Special case: PNG-lossless-oxipng mode — disable everything else
     if (isPNGOpt) {
       setCtrlEnabled(qInput, false);
       setCtrlEnabled(rInput, false);
@@ -229,22 +251,9 @@
       setCtrlEnabled(oxipngEl, true);
     }
   }
-
-  // Re-evaluate when relevant controls change
-  fmtEl.addEventListener('change', updateControlVisibility);
-  losslessEl.addEventListener('change', () => {
-    // Optional UX: when WebP becomes lossless, set quality to 100 (ignored anyway)
-    if (fmtEl.value === 'WEBP' && losslessEl.checked) {
-      qInput.value = rInput.value = '100';
-    }
-    updateControlVisibility();
-  });
-  quantColorsEl.addEventListener('input', updateControlVisibility);
-  oxipngEl.addEventListener('change', updateControlVisibility);
-  chromaEl.addEventListener('change', updateControlVisibility);
   updateControlVisibility();
 
-  // ---------- Compression ----------
+  // ---- Compression (sequential, no pool) ----
   async function compressOne(anyBytes, options) {
     const { targetFormat, quality, chroma, lossless, lossyColors, useOxipng } = options;
     const u8src = toUint8(anyBytes);
@@ -273,44 +282,50 @@
     throw new Error('Unsupported format');
   }
 
-  async function compressDataWASM(arrayBlob) {
+  async function compressDataWASM(arrayBlob, onProgress) {
     const options = currentSettings();
-    const jobs = arrayBlob.map(async ([name, scale, blob]) => {
+    const total = arrayBlob.length;
+    const out = new Array(total);
+    for (let i = 0; i < total; i++) {
+      const [name, scale, blob] = arrayBlob[i];
       const bytes = new Uint8Array(await blob.arrayBuffer());
       const { blob: outBlob, ext } = await compressOne(bytes, options);
-      return [name, scale, outBlob, ext];
-    });
-    return Promise.all(jobs);
+      out[i] = [name, scale, outBlob, ext];
+      if (onProgress) onProgress(i + 1, total);
+    }
+    return out;
   }
 
-  // ---------- Messaging / Table / ZIP ----------
+  // ---- Messaging / table / zip ----
   window.onmessage = async (event) => {
     const arrayData = event.data.pluginMessage;
-    if (!arrayData) return;
+    if (arrayData === undefined || arrayData === null) return;
 
-    const arrayBlob = [];
-    if (arrayData.length) {
-      for (const data of arrayData) arrayBlob.push([data[0], data[1], bytesToBlob(data[2])]);
+    // Empty selection → clear
+    if (Array.isArray(arrayData) && arrayData.length === 0) {
+      originalArray = [];
+      compressedArray = null;
+      updateTable([]);
+      return;
     }
+
+    // Build blobs from incoming bytes
+    const arrayBlob = [];
+    for (const data of arrayData) {
+      arrayBlob.push([data[0], data[1], bytesToBlob(data[2])]);
+    }
+
+    // New selection: reset UI + stop pending timers
     originalArray = arrayBlob;
     compressedArray = null;
+    if (autoCalcTimer) { clearTimeout(autoCalcTimer); autoCalcTimer = null; }
+
+    resetControlsForNewSelection();
+    updateControlVisibility();
+
+    // Show originals, then compress immediately (defaults = quality 100)
     updateTable(arrayBlob);
-
-    document.getElementById('export').onclick = () => {
-      const arr = compressedArray
-        ? compressedArray
-        : originalArray.map(([n, s, b]) => [n, s, b, b.type.includes('png') ? 'png' : b.type.includes('webp') ? 'webp' : 'jpg']);
-      handleBlobs(arr);
-    };
-
-    document.getElementById('calculate').onclick = () => {
-      compressDataWASM(originalArray)
-        .then((newBlobs) => {
-          updateTable(newBlobs.map(([n, s, b]) => [n, s, b]));
-          compressedArray = newBlobs;
-        })
-        .catch((err) => console.error('Error compressing blobs:', err));
-    };
+    triggerAutoCalcNow();
   };
 
   function updateTable(blobsArray) {
@@ -320,9 +335,7 @@
     const table = document.createElement('table');
     const header = document.createElement('tr');
     ['Node Name', 'Scale', 'File Size'].forEach((t) => {
-      const th = document.createElement('th');
-      th.textContent = t;
-      header.appendChild(th);
+      const th = document.createElement('th'); th.textContent = t; header.appendChild(th);
     });
     table.appendChild(header);
     let total = 0;
@@ -354,21 +367,60 @@
     });
   }
 
-  function naturalSort(a, b) {
-    const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
-    return collator.compare(a, b);
+  function naturalSort(a, b) { return new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' }).compare(a, b); }
+  function shortenString(str) { const max = 50; return str.length <= max ? str : (str.slice(0,24) + '...' + str.slice(-23)); }
+  function formatBytes(bytes) { if (bytes < 1024) return bytes + ' B'; if (bytes < 1048576) return (bytes/1024).toFixed(1)+' KB'; return (bytes/1048576).toFixed(1)+' MB'; }
+  function sanitizeName(s) { return String(s).replace(/[\/\\?%*:|"<>]/g, '_'); }
+
+  // ---- Auto-calc debounce + minimal busy UI ----
+  function disableAllControls(disabled) {
+    const controls = [fmtEl, losslessEl, chromaEl, quantColorsEl, oxipngEl, qInput, rInput,
+      document.getElementById('reload'), document.getElementById('calculate'), document.getElementById('export')
+    ];
+    for (const c of controls) c.disabled = !!disabled;
   }
-  function shortenString(str) {
-    const max = 50;
-    if (str.length <= max) return str;
-    return str.slice(0, 24) + '...' + str.slice(-23);
+  function showBusy(show) {
+    busyText.style.display = show ? 'block' : 'none';
+    busyBarWrap.style.display = show ? 'block' : 'none';
+    if (!show) busyBar.style.width = '0%';
   }
-  function formatBytes(bytes) {
-    if (bytes < 1024) return bytes + ' B';
-    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
-    return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+  function setProgress(done, total) {
+    const pct = total ? Math.round((done / total) * 100) : 0;
+    busyBar.style.width = pct + '%';
+    busyText.textContent = total ? `Compressing… ${done}/${total}` : 'Compressing…';
   }
-  function sanitizeName(s) {
-    return String(s).replace(/[\/\\?%*:|"<>]/g, '_');
+
+  function scheduleAutoCalc() {
+    if (autoCalcTimer) clearTimeout(autoCalcTimer);
+    autoCalcTimer = setTimeout(() => triggerAutoCalcNow(), 1500);
   }
+
+  async function triggerAutoCalcNow() {
+    if (!originalArray || originalArray.length === 0) return;
+    const myRun = ++currentRunId;
+
+    showBusy(true);
+    disableAllControls(true);
+    setProgress(0, originalArray.length);
+
+    try {
+      const newBlobs = await compressDataWASM(originalArray, (done, total) => {
+        if (myRun !== currentRunId) return;
+        setProgress(done, total);
+      });
+      if (myRun !== currentRunId) return;
+      updateTable(newBlobs.map(([n, s, b]) => [n, s, b]));
+      compressedArray = newBlobs;
+    } catch (err) {
+      console.error('Error compressing blobs:', err);
+    } finally {
+      if (myRun === currentRunId) {
+        showBusy(false);
+        disableAllControls(false);
+      }
+    }
+  }
+
+  // Initial applicability
+  updateControlVisibility();
 </script>
