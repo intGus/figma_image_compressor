@@ -4,11 +4,20 @@ Effortlessly compress and export your JPEG images in Figma
 
 ## Usage
 
-[Get the plugin on Figma](https://www.figma.com/community/plugin/1247697024251755358/Free-Image-Compressor) then select the elements you want to compress and export, select the desired scale in Figma's export settings, run the plugin, choose the compression level, press calculate for accurate file size and then export and save.
+[Get the plugin on Figma](https://www.figma.com/community/plugin/1247697024251755358/Free-Image-Compressor), select the layers you want to export and run the plugin.
+
+* Set the size with Figma's export settings on each layer (scale like 2x, or a fixed width or height). The file name gets Figma's suffix, e.g. `Hero@2x.jpg`.
+* Pick a format (JPEG, WebP, AVIF or PNG) and quality. Your choices are remembered.
+* Optional: a max width to scale big images down, and a background colour for transparent areas in JPEGs.
+* Up to 12 layers compress straight away; for more, press Compress. You can cancel at any time.
+* The table shows each file's original size, compressed size and how much was saved.
+* Export downloads a ZIP, or the image itself when only one is selected.
+
+Everything runs on your machine. Images are never uploaded anywhere.
 
 ## Installing and Contributing
 
-The plugin is built from `src/` into `dist/` with esbuild. Every codec (MozJPEG, WebP, PNG, Oxipng) is
+The plugin is built from `src/` into `dist/` with esbuild. Every codec (MozJPEG, WebP, AVIF, PNG, Oxipng, resize) is
 bundled into `dist/ui.html`, so the plugin works offline and its manifest declares no network access.
 
 * Clone this repository: `git clone https://github.com/intGus/figma_image_compressor.git`
@@ -36,7 +45,7 @@ This project is licensed under Figma's [Community Free Resource License](https:/
 
 ## Acknowledgments
 
-* [jSquash](https://github.com/jamsinclair/jSquash) - WebAssembly builds of the Squoosh codecs (MozJPEG, libwebp, PNG, Oxipng)
+* [jSquash](https://github.com/jamsinclair/jSquash) - WebAssembly builds of the Squoosh codecs (MozJPEG, libwebp, libavif, PNG, Oxipng, resize)
 * [image-q](https://github.com/ibezkrovnyi/image-quantization) - colour quantization for lossy PNG
 * [JSZip](https://stuk.github.io/jszip/) - A JavaScript class for generating and reading zip files 
 * [Export Zip](https://github.com/brianlovin/figma-export-zip) - An easy-to-understand Zip & Export plugin:

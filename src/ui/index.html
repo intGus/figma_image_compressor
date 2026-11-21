@@ -8,6 +8,7 @@
   <select id="format">
     <option value="JPEG">JPEG (MozJPEG)</option>
     <option value="WEBP">WebP (lossy / lossless)</option>
+    <option value="AVIF">AVIF (lossy / lossless)</option>
     <option value="PNG">PNG (lossless / quantized)</option>
     <option value="PNG-lossless-oxipng">PNG (lossless optimize only)</option>
   </select>
@@ -32,6 +33,11 @@
   <label for="jpegBg" class="type--small">JPEG background:</label>
   <input type="color" id="jpegBg" value="#ffffff" />
   <span id="alphaNote" class="type--small note" hidden>Transparent areas will be filled with this colour.</span>
+</div>
+<div class="row">
+  <label for="maxWidth" class="type--small">Max width (px):</label>
+  <input type="number" id="maxWidth" min="0" max="16384" step="1" value="" placeholder="No limit" style="min-width: 90px" />
+  <span class="type--small note">Wider images are scaled down.</span>
 </div>
 
 <label for="quality" class="type--small" style="margin-top: 8px">Compression (Quality 1–100):</label>

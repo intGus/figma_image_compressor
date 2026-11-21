@@ -38,7 +38,7 @@ function halfTransparent(w, h) {
   return { data, width: w, height: h };
 }
 
-const base = { quality: 80, lossless: false, chroma: '420', quantColors: 0, oxipng: true, jpegBackground: '#ffffff' };
+const base = { quality: 80, lossless: false, chroma: '420', quantColors: 0, oxipng: true, jpegBackground: '#ffffff', maxWidth: 0 };
 
 test('JPEG: transparent pixels are filled with the background colour, not black', async () => {
   const png = await E.encodePng(halfTransparent(32, 16));
@@ -77,4 +77,36 @@ test('WebP, PNG and PNG-optimise produce valid files', async () => {
     assert.equal(back.data[3], 255, 'PNG keeps alpha (opaque pixel)');
     assert.equal(back.data[(8 * 32 + 28) * 4 + 3], 0, 'PNG keeps alpha (transparent pixel)');
   }
+});
+
+test('AVIF produces an AVIF file, lossy and lossless', async () => {
+  const png = await E.encodePng(halfTransparent(32, 16));
+  for (const lossless of [false, true]) {
+    const r = await E.compressImage(png, { ...base, format: 'AVIF', lossless });
+    assert.equal(r.ext, 'avif');
+    assert.equal(r.mime, 'image/avif');
+    assert.equal(new TextDecoder().decode(r.bytes.slice(4, 12)), 'ftypavif');
+  }
+});
+
+test('max width scales wider images down, keeping the aspect ratio', async () => {
+  const png = await E.encodePng(halfTransparent(64, 32));
+  const jpg = await E.compressImage(png, { ...base, format: 'JPEG', maxWidth: 16 });
+  assert.equal(jpg.width, 16);
+  assert.equal(jpg.height, 8);
+  const img = await E.decodeJpeg(jpg.bytes);
+  assert.equal(img.width, 16);
+  assert.equal(img.height, 8);
+
+  const opt = await E.compressImage(png, { ...base, format: 'PNG-lossless-oxipng', maxWidth: 16 });
+  const back = await E.decodePng(opt.bytes);
+  assert.equal(back.width, 16);
+  assert.equal(back.height, 8);
+});
+
+test('max width never upscales', async () => {
+  const png = await E.encodePng(halfTransparent(32, 16));
+  const r = await E.compressImage(png, { ...base, format: 'WEBP', maxWidth: 1920 });
+  assert.equal(r.width, 32);
+  assert.equal(r.height, 16);
 });

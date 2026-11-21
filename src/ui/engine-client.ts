@@ -35,6 +35,11 @@ interface InlineEngine {
 
 const READY_TIMEOUT_MS = 8000;
 
+function withoutEnvelope(reply: Extract<EngineReply, { type: 'done' }>): CompressResult {
+  const { type: _type, jobId: _jobId, ...result } = reply;
+  return result;
+}
+
 export class EngineClient {
   private slots: Slot[] = [];
   private queue: Job[] = [];
@@ -174,7 +179,7 @@ export class EngineClient {
     const job = slot.job;
     if (!job || reply.type === 'pong' || reply.jobId !== job.id) return;
     slot.job = undefined;
-    if (reply.type === 'done') job.resolve({ bytes: reply.bytes, ext: reply.ext, mime: reply.mime, hasAlpha: reply.hasAlpha });
+    if (reply.type === 'done') job.resolve(withoutEnvelope(reply));
     else job.reject(new Error(reply.message));
     void this.pump();
   }
@@ -223,7 +228,7 @@ export class EngineClient {
         const job = this.queue.shift()!;
         await new Promise((r) => setTimeout(r, 0)); // let the window repaint between images
         const reply = await this.inline.handle({ type: 'compress', jobId: job.id, bytes: job.bytes, options: job.options });
-        if (reply.type === 'done') job.resolve({ bytes: reply.bytes, ext: reply.ext, mime: reply.mime, hasAlpha: reply.hasAlpha });
+        if (reply.type === 'done') job.resolve(withoutEnvelope(reply));
         else if (reply.type === 'error') job.reject(new Error(reply.message));
       }
     } finally {

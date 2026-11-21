@@ -1,12 +1,12 @@
 // Plugin sandbox: reads the selection and exports PNGs for the UI on request.
 
-import { resolveSuffix, constraintLabel } from './shared/filenames';
+import { resolveSuffix, constraintLabel, type ExportConstraintType } from './shared/filenames';
 import type { LayerInfo, ToCode, ToUi } from './shared/messages';
 import { sanitizeSettings } from './shared/settings';
 
 const SETTINGS_KEY = 'settings';
 
-figma.showUI(__html__, { width: 500, height: 600 });
+figma.showUI(__html__, { width: 560, height: 640 });
 
 function post(msg: ToUi) {
   figma.ui.postMessage(msg);
@@ -71,13 +71,23 @@ figma.ui.onmessage = async (msg: ToCode) => {
 
 // --- Export ---
 
-function exportScale(node: SceneNode): number {
+interface Constraint {
+  type: ExportConstraintType;
+  value: number;
+}
+
+/**
+ * The size from the layer's first export setting: a scale ("2x") or a fixed width or
+ * height ("512w", "300h"), like Figma's own export. Defaults to 1x.
+ */
+function exportConstraint(node: SceneNode): Constraint {
   const s = node.exportSettings && node.exportSettings[0];
-  if (s && 'constraint' in s && s.constraint && s.constraint.type === 'SCALE') {
-    const v = Number(s.constraint.value);
-    if (v > 0) return v;
+  if (s && 'constraint' in s && s.constraint) {
+    const { type } = s.constraint;
+    const value = Number(s.constraint.value);
+    if ((type === 'SCALE' || type === 'WIDTH' || type === 'HEIGHT') && value > 0) return { type, value };
   }
-  return 1;
+  return { type: 'SCALE', value: 1 };
 }
 
 function explicitSuffix(node: SceneNode): string {
@@ -96,12 +106,12 @@ function postSelection() {
   const nodes = figma.currentPage.selection.filter((n): n is SceneNode => 'exportAsync' in n);
   layers = new Map(nodes.map((n) => [n.id, n]));
   const info: LayerInfo[] = nodes.map((node) => {
-    const scale = exportScale(node);
+    const c = exportConstraint(node);
     return {
       id: node.id,
       name: node.name,
-      label: constraintLabel('SCALE', scale),
-      suffix: resolveSuffix('SCALE', scale, explicitSuffix(node)),
+      label: constraintLabel(c.type, c.value),
+      suffix: resolveSuffix(c.type, c.value, explicitSuffix(node)),
     };
   });
   post({ type: 'selection', layers: info });
@@ -117,8 +127,7 @@ async function exportLayers(exportId: number, ids: string[]) {
         const node = layers.get(id);
         try {
           if (!node || node.removed) throw new Error('Layer no longer exists');
-          const scale = exportScale(node);
-          const bytes = await node.exportAsync({ format: 'PNG', constraint: { type: 'SCALE', value: scale } });
+          const bytes = await node.exportAsync({ format: 'PNG', constraint: exportConstraint(node) });
           if (activeExport === exportId) post({ type: 'exported', exportId, id, bytes });
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);

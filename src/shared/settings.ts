@@ -1,13 +1,13 @@
 // User settings, saved with figma.clientStorage by code.ts. Pure, unit tested in test/settings.test.ts.
 
-export const FORMATS = ['JPEG', 'WEBP', 'PNG', 'PNG-lossless-oxipng'] as const;
+export const FORMATS = ['JPEG', 'WEBP', 'AVIF', 'PNG', 'PNG-lossless-oxipng'] as const;
 export type OutputFormat = (typeof FORMATS)[number];
 
 export interface Settings {
   format: OutputFormat;
-  /** 1–100. Used by JPEG and lossy WebP. */
+  /** 1–100. Used by JPEG and lossy WebP/AVIF. */
   quality: number;
-  /** WebP lossless. */
+  /** WebP/AVIF lossless. */
   lossless: boolean;
   chroma: '420' | '444';
   /** PNG palette size, 0 = keep full colour. */
@@ -15,8 +15,12 @@ export interface Settings {
   oxipng: boolean;
   /** Colour that transparent pixels are filled with for JPEG, "#rrggbb". */
   jpegBackground: string;
+  /** Downscale images wider than this many pixels; 0 = no limit. */
+  maxWidth: number;
   zipName: string;
 }
+
+export const MAX_WIDTH_LIMIT = 16384;
 
 export const DEFAULT_SETTINGS: Settings = {
   format: 'JPEG',
@@ -26,6 +30,7 @@ export const DEFAULT_SETTINGS: Settings = {
   quantColors: 0,
   oxipng: true,
   jpegBackground: '#ffffff',
+  maxWidth: 0,
   zipName: 'images.zip',
 };
 
@@ -49,6 +54,7 @@ export function sanitizeSettings(input: unknown): Settings {
       typeof s.jpegBackground === 'string' && /^#[0-9a-f]{6}$/i.test(s.jpegBackground)
         ? s.jpegBackground.toLowerCase()
         : d.jpegBackground,
+    maxWidth: Math.round(clampNumber(s.maxWidth, 0, MAX_WIDTH_LIMIT, d.maxWidth)),
     zipName: typeof s.zipName === 'string' && s.zipName.trim() ? s.zipName : d.zipName,
   };
 }
@@ -56,5 +62,15 @@ export function sanitizeSettings(input: unknown): Settings {
 export function extensionFor(format: OutputFormat): string {
   if (format === 'JPEG') return 'jpg';
   if (format === 'WEBP') return 'webp';
+  if (format === 'AVIF') return 'avif';
   return 'png';
+}
+
+/**
+ * Size to downscale to so the width is at most maxWidth, keeping the aspect ratio.
+ * Never upscales; returns null when no resize is needed.
+ */
+export function fitWidth(width: number, height: number, maxWidth: number): { width: number; height: number } | null {
+  if (!maxWidth || width <= maxWidth) return null;
+  return { width: maxWidth, height: Math.max(1, Math.round((height * maxWidth) / width)) };
 }

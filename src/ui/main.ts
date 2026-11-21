@@ -19,6 +19,7 @@ const quantColorsEl = $<HTMLInputElement>('quantColors');
 const oxipngEl = $<HTMLInputElement>('oxipng');
 const jpegBgEl = $<HTMLInputElement>('jpegBg');
 const alphaNoteEl = $<HTMLElement>('alphaNote');
+const maxWidthEl = $<HTMLInputElement>('maxWidth');
 const qInput = $<HTMLInputElement>('quality');
 const rInput = $<HTMLInputElement>('qualityRange');
 const zipNameEl = $<HTMLInputElement>('zipName');
@@ -73,6 +74,7 @@ function readSettings(): Settings {
     quantColors: Number(quantColorsEl.value || 0),
     oxipng: oxipngEl.checked,
     jpegBackground: jpegBgEl.value,
+    maxWidth: Number(maxWidthEl.value || 0),
     zipName: zipNameEl.value,
   });
 }
@@ -85,6 +87,7 @@ function applySettings(s: Settings) {
   quantColorsEl.value = String(s.quantColors);
   oxipngEl.checked = s.oxipng;
   jpegBgEl.value = s.jpegBackground;
+  maxWidthEl.value = s.maxWidth ? String(s.maxWidth) : '';
   zipNameEl.value = s.zipName;
   updateControls();
 }
@@ -106,15 +109,16 @@ function updateControls() {
   const fmt = fmtEl.value;
   const isJpeg = fmt === 'JPEG';
   const isWebp = fmt === 'WEBP';
+  const isAvif = fmt === 'AVIF';
   const isPng = fmt === 'PNG';
   const isPngOpt = fmt === 'PNG-lossless-oxipng';
-  const qualityRelevant = isJpeg || (isWebp && !losslessEl.checked);
+  const qualityRelevant = isJpeg || ((isWebp || isAvif) && !losslessEl.checked);
 
   setEnabled(qInput, qualityRelevant);
   setEnabled(rInput, qualityRelevant);
   setEnabled(chromaEl, isJpeg);
   setEnabled(jpegBgEl, isJpeg);
-  setEnabled(losslessEl, isWebp);
+  setEnabled(losslessEl, isWebp || isAvif);
   setEnabled(quantColorsEl, isPng);
   setEnabled(oxipngEl, isPng || isPngOpt);
 
@@ -130,7 +134,7 @@ function onSettingChanged() {
 rInput.addEventListener('input', () => { qInput.value = rInput.value; onSettingChanged(); });
 qInput.addEventListener('input', () => { rInput.value = qInput.value; onSettingChanged(); });
 for (const el of [fmtEl, losslessEl, chromaEl, oxipngEl]) el.addEventListener('change', onSettingChanged);
-for (const el of [quantColorsEl, jpegBgEl]) el.addEventListener('input', onSettingChanged);
+for (const el of [quantColorsEl, jpegBgEl, maxWidthEl]) el.addEventListener('input', onSettingChanged);
 zipNameEl.addEventListener('input', saveSettingsSoon);
 
 // ---------- Compression ----------
@@ -220,6 +224,7 @@ function refresh() {
     cancelBtn.hidden = !busy;
     compressBtn.hidden = busy || total === 0 || done === total;
     compressBtn.textContent = items.some((it) => it.original || it.result) ? 'Resume' : `Compress ${total} layers`;
+    exportBtn.textContent = items.filter((it) => it.result).length === 1 ? 'Download' : 'Export';
     // Export once nothing is pending; layers that failed are skipped.
     exportBtn.disabled = busy || !items.some((it) => it.result) || items.some((it) => !it.result && !it.error);
 
@@ -252,13 +257,20 @@ function cell(text: string, className?: string, title?: string): HTMLTableCellEl
   return td;
 }
 
+function savedText(original: number, compressed: number): { text: string; cls: string } {
+  if (!original) return { text: '', cls: '' };
+  const pct = Math.round((1 - compressed / original) * 100);
+  if (pct >= 0) return { text: `${pct}%`, cls: 'saved-good' };
+  return { text: `+${-pct}% larger`, cls: 'saved-bad' };
+}
+
 function renderTable() {
   const names = fileNames();
   const rows = items.map((it, i) => ({ it, file: names[i] })).sort((a, b) => naturalCompare(a.file, b.file));
 
   const table = document.createElement('table');
   const header = document.createElement('tr');
-  for (const [t, num] of [['File Name', false], ['Scale', false], ['File Size', true]] as const) {
+  for (const [t, num] of [['File Name', false], ['Size', false], ['Original', true], ['Compressed', true], ['Saved', true]] as const) {
     const th = document.createElement('th');
     th.textContent = t;
     if (num) th.className = 'num';
@@ -266,21 +278,40 @@ function renderTable() {
   }
   table.appendChild(header);
 
-  let total = 0;
+  let totalOriginal = 0;
+  let totalCompressed = 0;
   for (const { it, file } of rows) {
     const tr = document.createElement('tr');
-    tr.appendChild(cell(shortenString(file), undefined, `${file}\nLayer: ${it.name}`));
-    tr.appendChild(cell(it.label));
-    if (it.error) tr.appendChild(cell('Error', 'num status-error', it.error));
-    else if (it.result) tr.appendChild(cell(formatBytes(it.result.bytes.length), 'num'));
-    else if (it.original) tr.appendChild(cell(formatBytes(it.original.length), 'num muted', 'Original PNG size'));
-    else tr.appendChild(cell(exportingIds.has(it.id) ? 'Exporting…' : '—', 'num muted'));
-    total += it.result ? it.result.bytes.length : it.original?.length ?? 0;
+    tr.appendChild(cell(shortenString(file, 34), undefined, `${file}\nLayer: ${it.name}`));
+    const dims = it.result ? `${it.result.width}×${it.result.height}` : '';
+    tr.appendChild(cell(it.label, undefined, dims ? `Output: ${dims} px` : undefined));
+    tr.appendChild(
+      it.original
+        ? cell(formatBytes(it.original.length), 'num', 'PNG as exported by Figma')
+        : cell(exportingIds.has(it.id) ? 'Exporting…' : '—', 'num muted'),
+    );
+    if (it.error) {
+      tr.append(cell('Error', 'num status-error', it.error), cell(''));
+    } else if (it.result && it.original) {
+      const saved = savedText(it.original.length, it.result.bytes.length);
+      tr.append(cell(formatBytes(it.result.bytes.length), 'num'), cell(saved.text, `num ${saved.cls}`));
+      totalOriginal += it.original.length;
+      totalCompressed += it.result.bytes.length;
+    } else {
+      tr.append(cell(it.original && active ? 'Compressing…' : '—', 'num muted'), cell(''));
+    }
     table.appendChild(tr);
   }
   const totalRow = document.createElement('tr');
   totalRow.className = 'total';
-  totalRow.append(cell('Total'), cell(''), cell(formatBytes(total), 'num'));
+  const saved = savedText(totalOriginal, totalCompressed);
+  totalRow.append(
+    cell('Total'),
+    cell(''),
+    cell(totalOriginal ? formatBytes(totalOriginal) : '', 'num'),
+    cell(totalCompressed ? formatBytes(totalCompressed) : '', 'num'),
+    cell(saved.text, `num ${saved.cls}`),
+  );
   table.appendChild(totalRow);
 
   tableContainer.replaceChildren(items.length ? table : document.createTextNode(''));
@@ -303,6 +334,11 @@ async function exportFiles() {
   const names = fileNames();
   const ready = items.map((it, i) => ({ it, name: names[i] })).filter((x) => x.it.result);
   if (ready.length === 0) return;
+  if (ready.length === 1) {
+    // One image: download it directly, no ZIP.
+    download(ready[0].it.result!.blob, ready[0].name);
+    return;
+  }
   const zip = new JSZip();
   for (const { it, name } of ready) zip.file(name, it.result!.blob, { binary: true });
   const content = await zip.generateAsync({ type: 'blob' });

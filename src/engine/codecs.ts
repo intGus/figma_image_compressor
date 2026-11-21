@@ -17,6 +17,13 @@ import webpEncSimdWasm from 'wasm-gz:@jsquash/webp/codec/enc/webp_enc_simd.wasm'
 import initPng, { encode as pngEncodeRaw, decode as pngDecodeRaw } from '@jsquash/png/codec/pkg/squoosh_png.js';
 import pngWasm from 'wasm-gz:@jsquash/png/codec/pkg/squoosh_png_bg.wasm';
 
+import avifEncFactory from '@jsquash/avif/codec/enc/avif_enc.js';
+import { defaultOptions as avifDefaults } from '@jsquash/avif/meta.js';
+import avifEncWasm from 'wasm-gz:@jsquash/avif/codec/enc/avif_enc.wasm';
+
+import initResize, { resize as wasmResize } from '@jsquash/resize/lib/resize/pkg/squoosh_resize.js';
+import resizeWasm from 'wasm-gz:@jsquash/resize/lib/resize/pkg/squoosh_resize_bg.wasm';
+
 import initOxipng, { optimise as oxiOptimise, optimise_raw as oxiOptimiseRaw } from '@jsquash/oxipng/codec/pkg/squoosh_oxipng.js';
 import oxipngWasm from 'wasm-gz:@jsquash/oxipng/codec/pkg/squoosh_oxipng_bg.wasm';
 
@@ -57,6 +64,9 @@ const webpEncoder = once(async () => {
   return startEmscripten(webpEncFactory, await compileWasm('webp_enc', webpEncWasm));
 });
 
+// Single-threaded AVIF build: the multi-threaded one needs SharedArrayBuffer, which Figma's plugin iframe doesn't allow.
+const avifEncoder = once(async () => startEmscripten(avifEncFactory, await compileWasm('avif_enc', avifEncWasm)));
+const resizeReady = once(async () => initResize(await compileWasm('resize', resizeWasm)));
 const pngReady = once(async () => initPng(await compileWasm('png', pngWasm)));
 const oxipngReady = once(async () => initOxipng(await compileWasm('oxipng', oxipngWasm)));
 
@@ -82,6 +92,26 @@ export async function encodeWebp(img: RawImage, opts: { quality: number; lossles
   });
   if (!out) throw new Error('WebP encoding failed');
   return new Uint8Array(out);
+}
+
+export async function encodeAvif(img: RawImage, opts: { quality: number; lossless: boolean }): Promise<Uint8Array> {
+  const enc = await avifEncoder();
+  const options = opts.lossless
+    ? { ...avifDefaults, lossless: true, quality: 100, qualityAlpha: -1, subsample: 3 }
+    : { ...avifDefaults, quality: opts.quality };
+  const out = enc.encode(new Uint8Array(img.data.buffer, img.data.byteOffset, img.data.byteLength), img.width, img.height, options);
+  if (!out) throw new Error('AVIF encoding failed');
+  return new Uint8Array(out);
+}
+
+const LANCZOS3 = 3; // index into squoosh_resize's methods: triangle, catrom, mitchell, lanczos3
+
+/** High-quality downscale (Lanczos3, premultiplied alpha, linear RGB). */
+export async function resizeImage(img: RawImage, width: number, height: number): Promise<RawImage> {
+  await resizeReady();
+  const src = new Uint8Array(img.data.buffer, img.data.byteOffset, img.data.byteLength);
+  const out = wasmResize(src, img.width, img.height, width, height, LANCZOS3, true, true);
+  return { data: new Uint8ClampedArray(out.buffer, out.byteOffset, out.byteLength), width, height };
 }
 
 export async function decodePng(bytes: Uint8Array): Promise<RawImage> {

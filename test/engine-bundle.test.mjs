@@ -21,7 +21,7 @@ test('the shipped engine bundle answers ping and compresses', async () => {
 
   const data = new Uint8ClampedArray(8 * 8 * 4).map((_, i) => [0, 200, 0, 128][i % 4]); // semi-transparent green
   const png = makePng(8, 8, data);
-  const opts = { format: 'PNG', quality: 80, lossless: false, chroma: '420', quantColors: 0, oxipng: false, jpegBackground: '#ffffff' };
+  const opts = { format: 'PNG', quality: 80, lossless: false, chroma: '420', quantColors: 0, oxipng: false, jpegBackground: '#ffffff', maxWidth: 0 };
   const r = await engine.handle({ type: 'compress', jobId: 7, bytes: png, options: { ...opts, format: 'JPEG' } });
   assert.equal(r.type, 'done', r.message);
   assert.equal(r.jobId, 7);

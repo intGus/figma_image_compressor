@@ -4,7 +4,7 @@
 // window. If the plugin's environment refuses workers, the UI runs this same code
 // on the page instead and calls globalThis.__ficEngine.handle() directly.
 
-import { compressImage, type CompressOptions } from './compress';
+import { compressImage, type CompressOptions, type CompressResult } from './compress';
 
 export type EngineRequest =
   | { type: 'ping' }
@@ -12,7 +12,7 @@ export type EngineRequest =
 
 export type EngineReply =
   | { type: 'pong' }
-  | { type: 'done'; jobId: number; bytes: Uint8Array; ext: string; mime: string; hasAlpha: boolean }
+  | ({ type: 'done'; jobId: number } & CompressResult)
   | { type: 'error'; jobId: number; message: string };
 
 async function handle(msg: EngineRequest): Promise<EngineReply> {
