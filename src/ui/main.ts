@@ -164,11 +164,12 @@ function start() {
   const myRun = runId;
   const settings = readSettings();
 
-  const needExport = items.filter((it) => !it.original && !it.error && !exportingIds.has(it.id)).map((it) => it.id);
-  if (needExport.length) {
+  // A new export request replaces the previous one in the sandbox, so it lists every missing PNG.
+  const missing = items.filter((it) => !it.original && !it.error).map((it) => it.id);
+  if (missing.some((id) => !exportingIds.has(id))) {
     exportId++;
-    for (const id of needExport) exportingIds.add(id);
-    postToCode({ type: 'export', exportId, ids: needExport });
+    exportingIds = new Set(missing);
+    postToCode({ type: 'export', exportId, ids: missing });
   }
   for (const it of items) {
     if (it.original && !it.result && !it.error) compressItem(it, myRun, settings);

@@ -204,7 +204,14 @@ export class EngineClient {
 
   private async pump() {
     if (this.queue.length === 0) return;
-    await this.ensureMode();
+    try {
+      await this.ensureMode();
+    } catch (err) {
+      // Neither workers nor the on-page fallback could start: fail the jobs instead of leaving them stuck.
+      const error = err instanceof Error ? err : new Error(String(err));
+      for (const job of this.queue.splice(0)) job.reject(error);
+      return;
+    }
 
     if (this.mode === 'workers') {
       for (const slot of this.slots) {
