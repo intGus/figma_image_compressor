@@ -1,11 +1,15 @@
 {
+  // Type-checks the plugin sandbox code (src/code.ts). Run with: npm run typecheck
   "compilerOptions": {
-    "target": "es2016",
-    "lib": ["es2016"],
+    "target": "es2017",
+    "lib": ["es2017"],
     "strict": true,
-    "typeRoots": [
-      "./node_modules/@types",
-      "./node_modules/@figma"
-    ]
-  }
+    "noEmit": true,
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "skipLibCheck": true,
+    "typeRoots": ["./node_modules/@figma"],
+    "types": ["plugin-typings"]
+  },
+  "include": ["src/code.ts", "src/shared/**/*.ts"]
 }
