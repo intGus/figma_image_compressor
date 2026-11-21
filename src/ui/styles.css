@@ -26,6 +26,8 @@ td.muted { color: #888; }
 
 #busyText { font-size: 11px; color: #666; display: none; margin: 10px 0 6px; }
 #busyBarWrap { height: 6px; background: #eee; border-radius: 999px; overflow: hidden; display: none; }
+#message { margin-top: 10px; }
+#message:empty { display: none; }
 #busyBar { height: 100%; width: 0%; background: #18a0fb; transition: width 0.2s ease; }
 
 .btn-container { display: flex; justify-content: center; gap: 12px; margin-top: 16px; }

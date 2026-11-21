@@ -8,6 +8,12 @@ declare module 'wasm-gz:*' {
   export default gzBase64;
 }
 
+declare module 'virtual:engine-source' {
+  /** Source of the compression engine bundle (src/engine/worker.ts), see scripts/build.mjs. */
+  const source: string;
+  export default source;
+}
+
 type EmscriptenFactory = (opts: Record<string, unknown>) => Promise<any>;
 
 declare module '@jsquash/jpeg/codec/enc/mozjpeg_enc.js' {

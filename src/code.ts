@@ -1,7 +1,7 @@
-// Plugin sandbox: reads the selection, exports PNGs and sends them to the UI.
+// Plugin sandbox: reads the selection and exports PNGs for the UI on request.
 
 import { resolveSuffix, constraintLabel } from './shared/filenames';
-import type { ExportedItem, ToCode, ToUi } from './shared/messages';
+import type { LayerInfo, ToCode, ToUi } from './shared/messages';
 import { sanitizeSettings } from './shared/settings';
 
 const SETTINGS_KEY = 'settings';
@@ -17,7 +17,7 @@ function post(msg: ToUi) {
 let reloadTimer: ReturnType<typeof setTimeout> | undefined;
 function scheduleReload() {
   if (reloadTimer) clearTimeout(reloadTimer);
-  reloadTimer = setTimeout(() => exportSelectionAndPost(), 500);
+  reloadTimer = setTimeout(() => postSelection(), 500);
 }
 
 figma.on('selectionchange', scheduleReload);
@@ -45,7 +45,11 @@ figma.on('currentpagechange', () => {
 figma.ui.onmessage = async (msg: ToCode) => {
   if (!msg || typeof msg !== 'object') return;
   if (msg.type === 'reload') {
-    await exportSelectionAndPost();
+    postSelection();
+  } else if (msg.type === 'export') {
+    await exportLayers(msg.exportId, msg.ids);
+  } else if (msg.type === 'cancel-export') {
+    activeExport = 0;
   } else if (msg.type === 'save-settings') {
     try {
       await figma.clientStorage.setAsync(SETTINGS_KEY, sanitizeSettings(msg.settings));
@@ -62,7 +66,7 @@ figma.ui.onmessage = async (msg: ToCode) => {
     saved = await figma.clientStorage.getAsync(SETTINGS_KEY);
   } catch (_) {}
   post({ type: 'init', settings: sanitizeSettings(saved) });
-  await exportSelectionAndPost();
+  postSelection();
 })();
 
 // --- Export ---
@@ -81,24 +85,47 @@ function explicitSuffix(node: SceneNode): string {
   return (s && 'suffix' in s && s.suffix) || '';
 }
 
-async function exportSelectionAndPost() {
+// Layers from the last selection sent to the UI, by id.
+let layers = new Map<string, SceneNode>();
+// The export run the UI currently wants; 0 when cancelled.
+let activeExport = 0;
+const EXPORT_BATCH = 4;
+
+function postSelection() {
+  activeExport = 0; // a new selection replaces any export in progress
   const nodes = figma.currentPage.selection.filter((n): n is SceneNode => 'exportAsync' in n);
-  if (nodes.length === 0) {
-    post({ type: 'selection', items: [] });
-    return;
+  layers = new Map(nodes.map((n) => [n.id, n]));
+  const info: LayerInfo[] = nodes.map((node) => {
+    const scale = exportScale(node);
+    return {
+      id: node.id,
+      name: node.name,
+      label: constraintLabel('SCALE', scale),
+      suffix: resolveSuffix('SCALE', scale, explicitSuffix(node)),
+    };
+  });
+  post({ type: 'selection', layers: info });
+}
+
+/** Exports the requested layers a few at a time, so huge selections don't all export at once. */
+async function exportLayers(exportId: number, ids: string[]) {
+  activeExport = exportId;
+  for (let i = 0; i < ids.length; i += EXPORT_BATCH) {
+    if (activeExport !== exportId) return; // cancelled or replaced
+    await Promise.all(
+      ids.slice(i, i + EXPORT_BATCH).map(async (id) => {
+        const node = layers.get(id);
+        try {
+          if (!node || node.removed) throw new Error('Layer no longer exists');
+          const scale = exportScale(node);
+          const bytes = await node.exportAsync({ format: 'PNG', constraint: { type: 'SCALE', value: scale } });
+          if (activeExport === exportId) post({ type: 'exported', exportId, id, bytes });
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          if (activeExport === exportId) post({ type: 'export-failed', exportId, id, message });
+        }
+      }),
+    );
   }
-  const items: ExportedItem[] = await Promise.all(
-    nodes.map(async (node) => {
-      const scale = exportScale(node);
-      const bytes = await node.exportAsync({ format: 'PNG', constraint: { type: 'SCALE', value: scale } });
-      return {
-        id: node.id,
-        name: node.name,
-        label: constraintLabel('SCALE', scale),
-        suffix: resolveSuffix('SCALE', scale, explicitSuffix(node)),
-        bytes,
-      };
-    }),
-  );
-  post({ type: 'selection', items });
+  if (activeExport === exportId) post({ type: 'export-finished', exportId });
 }

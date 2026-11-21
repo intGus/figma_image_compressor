@@ -46,9 +46,37 @@ export const engineOptions = {
   legalComments: 'none',
 };
 
-async function buildUi() {
+/** The compression engine (codecs included), built as a script the UI starts as a Web Worker. */
+export async function buildEngineSource() {
   const result = await esbuild.build({
     ...engineOptions,
+    entryPoints: [join(root, 'src/engine/worker.ts')],
+    format: 'iife',
+    target: 'es2020',
+    minify: true,
+    write: false,
+  });
+  return result.outputFiles[0].text;
+}
+
+async function buildUi() {
+  const engineSource = await buildEngineSource();
+  const result = await esbuild.build({
+    bundle: true,
+    legalComments: 'none',
+    // `import source from 'virtual:engine-source'` gives the engine script as a string.
+    plugins: [
+      {
+        name: 'engine-source',
+        setup(build) {
+          build.onResolve({ filter: /^virtual:engine-source$/ }, () => ({ path: 'engine-source', namespace: 'virtual' }));
+          build.onLoad({ filter: /.*/, namespace: 'virtual' }, () => ({
+            contents: `export default ${JSON.stringify(engineSource)};`,
+            loader: 'js',
+          }));
+        },
+      },
+    ],
     entryPoints: [join(root, 'src/ui/main.ts')],
     format: 'iife',
     target: 'es2020',

@@ -1,7 +1,9 @@
 // Plugin UI: settings, the file table, compression and download.
 
 import JSZip from 'jszip';
-import { compressImage, type CompressResult } from '../engine/compress';
+import engineSource from 'virtual:engine-source';
+import type { CompressResult } from '../engine/compress';
+import { CancelledError, EngineClient } from './engine-client';
 import { uniqueFileNames, zipFileName } from '../shared/filenames';
 import { formatBytes, naturalCompare, shortenString } from '../shared/format';
 import type { ToCode, ToUi } from '../shared/messages';
@@ -22,6 +24,9 @@ const rInput = $<HTMLInputElement>('qualityRange');
 const zipNameEl = $<HTMLInputElement>('zipName');
 const reloadBtn = $<HTMLButtonElement>('reload');
 const exportBtn = $<HTMLButtonElement>('export');
+const compressBtn = $<HTMLButtonElement>('compress');
+const cancelBtn = $<HTMLButtonElement>('cancel');
+const messageEl = $<HTMLElement>('message');
 const busyText = $<HTMLElement>('busyText');
 const busyBarWrap = $<HTMLElement>('busyBarWrap');
 const busyBar = $<HTMLElement>('busyBar');
@@ -38,13 +43,24 @@ interface Item {
   name: string;
   label: string;
   suffix: string;
-  original: Uint8Array;
+  /** PNG exported by Figma, once it has arrived. Kept so setting changes don't need a new export. */
+  original?: Uint8Array;
   result?: CompressResult & { blob: Blob };
   error?: string;
 }
 
+/** Selections up to this size are exported and compressed straight away; bigger ones wait for "Compress". */
+const AUTO_COMPRESS_LIMIT = 12;
+
 let items: Item[] = [];
+/** True while the current selection should be exported and compressed. */
+let active = false;
+/** Bumped whenever results in flight become stale (new selection, new settings, cancel). */
 let runId = 0;
+let exportId = 0;
+let exportingIds = new Set<string>();
+
+const engine = new EngineClient(engineSource, Math.max(1, Math.min(2, (navigator.hardwareConcurrency || 2) - 1)));
 
 // ---------- Settings ----------
 
@@ -122,49 +138,102 @@ zipNameEl.addEventListener('input', saveSettingsSoon);
 let compressTimer: number | undefined;
 function scheduleCompress() {
   clearTimeout(compressTimer);
-  compressTimer = window.setTimeout(compressAll, 600);
+  compressTimer = window.setTimeout(restartCompression, 600);
 }
 
-function showBusy(show: boolean) {
-  busyText.style.display = show ? 'block' : 'none';
-  busyBarWrap.style.display = show ? 'block' : 'none';
-  if (!show) busyBar.style.width = '0%';
-}
-function setProgress(done: number, total: number) {
-  busyBar.style.width = `${total ? Math.round((done / total) * 100) : 0}%`;
-  busyText.textContent = `Compressing… ${done}/${total}`;
-}
-
-async function compressAll() {
+/** Settings changed: throw away results and compress again from the PNGs we already have. */
+function restartCompression() {
   clearTimeout(compressTimer);
-  if (items.length === 0) return;
-  const myRun = ++runId;
-  const settings = readSettings();
-  const batch = items;
-  for (const it of batch) { it.result = undefined; it.error = undefined; }
-  renderTable();
-  showBusy(true);
-  exportBtn.disabled = true;
-  setProgress(0, batch.length);
+  runId++;
+  engine.cancelAll();
+  for (const it of items) {
+    it.result = undefined;
+    if (it.original) it.error = undefined;
+  }
+  if (active) start();
+  else refresh();
+}
 
-  for (let i = 0; i < batch.length; i++) {
-    const it = batch[i];
-    try {
-      const r = await compressImage(it.original, settings);
+/** Exports whatever is missing and compresses everything that has no result yet. */
+function start() {
+  active = true;
+  const myRun = runId;
+  const settings = readSettings();
+
+  const needExport = items.filter((it) => !it.original && !it.error && !exportingIds.has(it.id)).map((it) => it.id);
+  if (needExport.length) {
+    exportId++;
+    for (const id of needExport) exportingIds.add(id);
+    postToCode({ type: 'export', exportId, ids: needExport });
+  }
+  for (const it of items) {
+    if (it.original && !it.result && !it.error) compressItem(it, myRun, settings);
+  }
+  refresh();
+}
+
+function compressItem(it: Item, myRun: number, settings: Settings) {
+  engine.compress(it.original!, settings).then(
+    (r) => {
       if (myRun !== runId) return;
       it.result = { ...r, blob: new Blob([r.bytes as BlobPart], { type: r.mime }) };
-    } catch (err) {
-      if (myRun !== runId) return;
+      refresh();
+    },
+    (err) => {
+      if (myRun !== runId || err instanceof CancelledError) return;
       console.error('Compression failed for', it.name, err);
       it.error = err instanceof Error ? err.message : String(err);
+      refresh();
+    },
+  );
+}
+
+function cancel() {
+  active = false;
+  runId++;
+  engine.cancelAll();
+  exportingIds = new Set();
+  postToCode({ type: 'cancel-export' });
+  refresh();
+}
+
+// ---------- Status ----------
+
+function progress() {
+  const done = items.filter((it) => it.result || it.error).length;
+  return { done, total: items.length, busy: active && done < items.length };
+}
+
+let refreshQueued = false;
+/** Re-renders the table, progress and buttons on the next frame (batched). */
+function refresh() {
+  if (refreshQueued) return;
+  refreshQueued = true;
+  requestAnimationFrame(() => {
+    refreshQueued = false;
+    const { done, total, busy } = progress();
+    busyText.style.display = busyBarWrap.style.display = busy ? 'block' : 'none';
+    busyBar.style.width = `${total ? Math.round((done / total) * 100) : 0}%`;
+    const exporting = items.filter((it) => exportingIds.has(it.id)).length;
+    busyText.textContent = exporting ? `Exporting from Figma… ${total - exporting}/${total}` : `Compressing… ${done}/${total}`;
+
+    cancelBtn.hidden = !busy;
+    compressBtn.hidden = busy || total === 0 || done === total;
+    compressBtn.textContent = items.some((it) => it.original || it.result) ? 'Resume' : `Compress ${total} layers`;
+    // Export once nothing is pending; layers that failed are skipped.
+    exportBtn.disabled = busy || !items.some((it) => it.result) || items.some((it) => !it.result && !it.error);
+
+    const errors = items.filter((it) => it.error).length;
+    if (!active && total > done && !items.some((it) => it.original || it.result)) {
+      messageEl.textContent = `${total} layers selected. Press Compress to export and compress them.`;
+    } else if (errors) {
+      messageEl.textContent = `${errors} of ${total} couldn't be processed (hover "Error" for details) and will be left out of the export.`;
+    } else {
+      messageEl.textContent = '';
     }
-    setProgress(i + 1, batch.length);
     renderTable();
-  }
-  if (myRun !== runId) return;
-  showBusy(false);
-  exportBtn.disabled = false;
-  updateControls();
+    updateControls();
+  });
 }
 
 // ---------- Table ----------
@@ -204,8 +273,9 @@ function renderTable() {
     tr.appendChild(cell(it.label));
     if (it.error) tr.appendChild(cell('Error', 'num status-error', it.error));
     else if (it.result) tr.appendChild(cell(formatBytes(it.result.bytes.length), 'num'));
-    else tr.appendChild(cell(formatBytes(it.original.length), 'num muted', 'Original PNG size'));
-    total += it.result ? it.result.bytes.length : it.original.length;
+    else if (it.original) tr.appendChild(cell(formatBytes(it.original.length), 'num muted', 'Original PNG size'));
+    else tr.appendChild(cell(exportingIds.has(it.id) ? 'Exporting…' : '—', 'num muted'));
+    total += it.result ? it.result.bytes.length : it.original?.length ?? 0;
     table.appendChild(tr);
   }
   const totalRow = document.createElement('tr');
@@ -230,16 +300,18 @@ function download(blob: Blob, filename: string) {
 }
 
 async function exportFiles() {
-  const ready = items.filter((it) => it.result);
-  if (ready.length !== items.length || items.length === 0) return;
   const names = fileNames();
+  const ready = items.map((it, i) => ({ it, name: names[i] })).filter((x) => x.it.result);
+  if (ready.length === 0) return;
   const zip = new JSZip();
-  items.forEach((it, i) => zip.file(names[i], it.result!.blob, { binary: true }));
+  for (const { it, name } of ready) zip.file(name, it.result!.blob, { binary: true });
   const content = await zip.generateAsync({ type: 'blob' });
   download(content, zipFileName(zipNameEl.value));
 }
 
 exportBtn.addEventListener('click', () => void exportFiles());
+compressBtn.addEventListener('click', () => start());
+cancelBtn.addEventListener('click', () => cancel());
 reloadBtn.addEventListener('click', () => postToCode({ type: 'reload' }));
 
 // ---------- Messages from the plugin sandbox ----------
@@ -247,15 +319,40 @@ reloadBtn.addEventListener('click', () => postToCode({ type: 'reload' }));
 window.onmessage = (event: MessageEvent) => {
   const msg = event.data?.pluginMessage as ToUi | undefined;
   if (!msg) return;
-  if (msg.type === 'init') {
-    applySettings(msg.settings);
-  } else if (msg.type === 'selection') {
-    runId++; // stop any compression of the old selection
-    items = msg.items.map((x) => ({ id: x.id, name: x.name, label: x.label, suffix: x.suffix, original: x.bytes }));
-    renderTable();
-    updateControls();
-    if (items.length) void compressAll();
-    else showBusy(false);
+  switch (msg.type) {
+    case 'init':
+      applySettings(msg.settings);
+      break;
+    case 'selection':
+      // New selection: drop everything in flight for the old one.
+      runId++;
+      engine.cancelAll();
+      exportingIds = new Set();
+      items = msg.layers.map((l) => ({ id: l.id, name: l.name, label: l.label, suffix: l.suffix }));
+      active = false;
+      if (items.length > 0 && items.length <= AUTO_COMPRESS_LIMIT) start();
+      else refresh();
+      break;
+    case 'exported': {
+      if (msg.exportId !== exportId) break;
+      exportingIds.delete(msg.id);
+      const it = items.find((x) => x.id === msg.id);
+      if (!it) break;
+      it.original = msg.bytes;
+      if (active) compressItem(it, runId, readSettings());
+      refresh();
+      break;
+    }
+    case 'export-failed': {
+      if (msg.exportId !== exportId) break;
+      exportingIds.delete(msg.id);
+      const it = items.find((x) => x.id === msg.id);
+      if (it) it.error = `Figma couldn't export this layer: ${msg.message}`;
+      refresh();
+      break;
+    }
+    case 'export-finished':
+      break;
   }
 };
 
