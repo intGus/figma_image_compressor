@@ -4,8 +4,17 @@ figma.ui.resize(500, 600);
 // Debounce reloads to avoid spam when both selection & property change fire together
 let reloadTimer: number | undefined;
 
-// Initial export
-exportSelectionAndPost();
+const SETTINGS_KEY = 'settings';
+
+// Send saved settings first so the UI applies them before the first compression
+(async () => {
+  let settings: unknown = null;
+  try {
+    settings = await figma.clientStorage.getAsync(SETTINGS_KEY);
+  } catch (_) {}
+  figma.ui.postMessage({ type: 'init', settings: settings || null });
+  await exportSelectionAndPost();
+})();
 
 // --- Trigger reload when selection changes ---
 figma.on('selectionchange', () => scheduleReload());
@@ -28,6 +37,10 @@ figma.on('documentchange', (event) => {
 figma.ui.onmessage = async (msg: any) => {
   if (msg === '' || (msg && msg.type === 'reload')) {
     await exportSelectionAndPost();
+  } else if (msg && msg.type === 'save-settings') {
+    try {
+      await figma.clientStorage.setAsync(SETTINGS_KEY, msg.settings);
+    } catch (_) {}
   }
 };
 
@@ -52,7 +65,7 @@ async function exportSelectionAndPost() {
     return;
   }
 
-  const pending: Array<[string, number, Promise<Uint8Array>]> = [];
+  const pending: Array<[string, number, Promise<Uint8Array>, string]> = [];
 
   for (const node of items) {
     const scale =
@@ -63,11 +76,16 @@ async function exportSelectionAndPost() {
         // @ts-ignore
         Number(node.exportSettings[0].constraint?.value)) || 1;
 
-    pending.push([node.name, scale, exportNodeAsPNG(node, scale)]);
+    // Figma-style file suffix: the export setting's own suffix, else "@2x" etc. when scale isn't 1
+    // @ts-ignore
+    const explicitSuffix = (Array.isArray(node.exportSettings) && node.exportSettings[0] && node.exportSettings[0].suffix) || '';
+    const suffix = explicitSuffix || (scale !== 1 ? `@${scale}x` : '');
+
+    pending.push([node.name, scale, exportNodeAsPNG(node, scale), suffix]);
   }
 
   const resolved = await Promise.all(
-    pending.map(async ([name, scale, bytesP]) => [name, scale, await bytesP] as [string, number, Uint8Array])
+    pending.map(async ([name, scale, bytesP, suffix]) => [name, scale, await bytesP, suffix] as [string, number, Uint8Array, string])
   );
 
   figma.ui.postMessage(resolved);
