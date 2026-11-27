@@ -1,16 +1,36 @@
 {
-  "name": "slice_export",
+  "name": "free-image-compressor",
   "version": "1.0.0",
-  "description": "Your Figma Plugin",
-  "main": "code.js",
+  "private": true,
+  "description": "Figma plugin: compress and export images (JPEG, WebP, PNG) entirely on your machine",
+  "type": "module",
+  "engines": {
+    "node": ">=22.18"
+  },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
-    "watch": "npm run build -- --watch"
+    "build": "node scripts/build.mjs",
+    "watch": "node scripts/build.mjs --watch",
+    "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.ui.json",
+    "test": "node --test \"test/*.test.mjs\"",
+    "check": "npm run typecheck && npm test && npm run build"
   },
   "author": "",
   "license": "",
+  "dependencies": {
+    "@jsquash/avif": "2.1.1",
+    "@jsquash/jpeg": "1.6.0",
+    "@jsquash/oxipng": "2.3.0",
+    "@jsquash/png": "3.1.1",
+    "@jsquash/resize": "2.1.1",
+    "@jsquash/webp": "1.5.0",
+    "figma-plugin-ds": "1.0.1",
+    "image-q": "4.0.0",
+    "jszip": "3.10.2",
+    "wasm-feature-detect": "1.10.1"
+  },
   "devDependencies": {
-    "@figma/plugin-typings": "*",
-    "typescript": "*"
+    "@figma/plugin-typings": "1.143.0",
+    "esbuild": "0.28.2",
+    "typescript": "5.9.3"
   }
 }

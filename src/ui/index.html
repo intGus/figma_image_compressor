@@ -1,0 +1,65 @@
+<!-- Template for dist/ui.html. scripts/build.mjs inlines the styles and the bundled script. -->
+<!-- STYLES -->
+
+<h1>Compress &amp; Export</h1>
+
+<div class="row">
+  <label for="format" class="type--small">Format:</label>
+  <select id="format">
+    <option value="JPEG">JPEG (MozJPEG)</option>
+    <option value="WEBP">WebP (lossy / lossless)</option>
+    <option value="AVIF">AVIF (lossy / lossless)</option>
+    <option value="PNG">PNG (lossless / quantized)</option>
+    <option value="PNG-lossless-oxipng">PNG (lossless optimize only)</option>
+  </select>
+
+  <label for="lossless" class="type--small">Lossless:</label>
+  <input type="checkbox" id="lossless" />
+</div>
+<div class="row">
+  <label for="chroma" class="type--small">JPEG Chroma:</label>
+  <select id="chroma" style="min-width: 50px">
+    <option value="420" selected>4:2:0</option>
+    <option value="444">4:4:4</option>
+  </select>
+
+  <label for="quantColors" class="type--small">PNG Quant Colors:</label>
+  <input type="number" id="quantColors" min="0" max="256" step="1" value="0" style="min-width: 60px" />
+
+  <label for="oxipng" class="type--small">Oxipng:</label>
+  <input type="checkbox" id="oxipng" checked />
+</div>
+<div class="row">
+  <label for="jpegBg" class="type--small">JPEG background:</label>
+  <input type="color" id="jpegBg" value="#ffffff" />
+  <span id="alphaNote" class="type--small note" hidden>Transparent areas will be filled with this colour.</span>
+</div>
+<div class="row">
+  <label for="maxWidth" class="type--small">Max width (px):</label>
+  <input type="number" id="maxWidth" min="0" max="16384" step="1" value="" placeholder="No limit" style="min-width: 90px" />
+  <span class="type--small note">Wider images are scaled down.</span>
+</div>
+
+<label for="quality" class="type--small" style="margin-top: 8px">Compression (Quality 1–100):</label>
+<input type="number" id="quality" min="1" max="100" step="0.5" value="80" style="display: inline-block" />
+<input type="range" min="1" max="100" class="slider" step="0.5" id="qualityRange" value="80" />
+
+<div id="busyText"></div>
+<div id="busyBarWrap"><div id="busyBar"></div></div>
+<div id="message" class="type--small note"></div>
+
+<div id="table-container"></div>
+
+<div class="btn-container">
+  <button class="button button--secondary" id="reload">Reload</button>
+  <button class="button button--secondary" id="cancel" hidden>Cancel</button>
+  <button class="button button--primary" id="compress" hidden>Compress</button>
+  <button class="button button--primary" id="export">Export</button>
+</div>
+
+<div class="row" style="margin-top: 10px">
+  <label for="zipName" class="type--small">ZIP name:</label>
+  <input type="text" id="zipName" value="images.zip" style="width: 200px" />
+</div>
+
+<!-- SCRIPT -->
